@@ -24,6 +24,7 @@ enum OrderType {
 
 enum OrderStatus {
   PENDING
+  PARTIALLY_FILLED
   FILLED
   CANCELLED
 }
