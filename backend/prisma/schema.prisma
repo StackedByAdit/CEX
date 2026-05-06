@@ -18,8 +18,8 @@ enum OrderSide {
 }
 
 enum OrderType {
-  LIMIT
   MARKET
+  LIMIT
 }
 
 enum OrderStatus {
@@ -28,14 +28,21 @@ enum OrderStatus {
   CANCELLED
 }
 
-model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
-  password  String
-  balance   Float    @default(0)
-  createdAt DateTime @default(now())
+enum AssetType {
+  INR
+  STOCK
+}
 
-  order Order[]
+model User {
+  id       String @id @default(uuid())
+  username String @unique
+  password String
+
+  orders   Order[]
+  balances Balance[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Stock {
@@ -43,22 +50,71 @@ model Stock {
   title  String
   symbol String @unique
 
-  orders Order[]
+  orders   Order[]
+  balances Balance[]
+
+  createdAt DateTime @default(now())
+
+  fills Fill[]
 }
 
 model Order {
-  id             String      @id @default(uuid())
-  userId         String
-  stockId        String
-  side           OrderSide
-  type           OrderType
-  symbol         String
-  price          Float
+  id String @id @default(uuid())
+
+  userId  String
+  stockId String
+
+  side   OrderSide
+  type   OrderType
+  status OrderStatus @default(PENDING)
+
+  price          Float?
   quantity       Float
-  filledQuantity Float       @default(0)
-  status         OrderStatus @default(PENDING)
-  createdAt      DateTime    @default(now())
+  filledQuantity Float  @default(0)
 
   user  User  @relation(fields: [userId], references: [id])
   stock Stock @relation(fields: [stockId], references: [id])
+
+  buyFills  Fill[] @relation("BuyOrder")
+  sellFills Fill[] @relation("SellOrder")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Fill {
+  id String @id @default(uuid())
+
+  stockId String
+
+  buyOrderId  String
+  sellOrderId String
+
+  price    Float
+  quantity Float
+
+  buyOrder  Order @relation("BuyOrder", fields: [buyOrderId], references: [id])
+  sellOrder Order @relation("SellOrder", fields: [sellOrderId], references: [id])
+
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Balance {
+  id String @id @default(uuid())
+
+  userId  String
+  stockId String?
+
+  assetType AssetType
+
+  available Float @default(0)
+  locked    Float @default(0)
+
+  user  User   @relation(fields: [userId], references: [id])
+  stock Stock? @relation(fields: [stockId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
