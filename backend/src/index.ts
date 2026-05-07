@@ -270,6 +270,33 @@ app.post("/order", async (req: Request, res: Response) => {
         }
 
 
+        const dbOrder = await prisma.order.create({
+            data: {
+                userId,
+                stockId: stock.id,
+                side,
+                type,
+                status: "PENDING",
+                price,
+                quantity,
+                filledQuantity: 0
+            }
+        });
+
+
+        const currOrder: MemoryOrder = {
+            id: dbOrder.id,
+            userId,
+            symbol,
+            side,
+            type,
+            price,
+            quantity,
+            filledQuantity: 0,
+            status: "PENDING"
+        };
+
+
 
         
 
