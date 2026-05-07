@@ -297,8 +297,72 @@ app.post("/order", async (req: Request, res: Response) => {
         };
 
 
+        matchOrder(currOrder);
 
-        
+
+        await prisma.order.update({
+            where: {
+                id: dbOrder.id
+            },
+            data: {
+                filledQuantity: currOrder.filledQuantity,
+                status: currOrder.status
+            }
+        });
+
+
+        if (currOrder.filledQuantity < currOrder.quantity) {
+
+            if (currOrder.type === "LIMIT") {
+
+                const book = ORDERBOOK[symbol];
+
+                if (!book) {
+                    return res.status(400).json({
+                        message: "Invalid symbol"
+                    });
+                }
+
+                const sideBook =
+                    side === "BUY"
+                        ? book.bids
+                        : book.asks;
+
+                const orderPrice = currOrder.price;
+
+                if (orderPrice === undefined) {
+                    return res.status(400).json({
+                        message: "LIMIT order price missing"
+                    });
+                }
+
+                if (!sideBook[orderPrice]) {
+                    sideBook[orderPrice] = [];
+                }
+
+                sideBook[orderPrice].push(currOrder);
+
+                ORDERS.push(currOrder);
+
+            } else {
+
+                currOrder.status = "CANCELLED";
+
+                await prisma.order.update({
+                    where: {
+                        id: dbOrder.id
+                    },
+                    data: {
+                        status: "CANCELLED"
+                    }
+                });
+            }
+        }
+
+        return res.status(200).json({
+            message: "Order placed",
+            order: currOrder
+        });
 
     } catch (e) {
 
