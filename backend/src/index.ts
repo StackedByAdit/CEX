@@ -1,18 +1,14 @@
 import express from "express";
 import type { Request, Response } from "express";
 import { AssetType, PrismaClient } from "../generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcrypt";
+import { prisma } from "./prisma";
 import { loginSchema, signupSchema } from "./schemas/zodSchema";
 import jwt from "jsonwebtoken";
 
 const PORT = 3000;
 
 const JWT_SECRET = "secretkey123";
-
-const adapter = new PrismaPg({
-    connectionString: process.env.DATABASE_URL!,
-});
 
 const app = express();
 app.use(express.json());
@@ -29,8 +25,6 @@ const ORDERBOOK = {
     HDFC: { bids: {}, asks: {} },
     TATA: { bids: {}, asks: {} },
 };
-
-const prisma = new PrismaClient({ adapter });
 
 app.post("/signup", async (req: Request, res: Response) => {
 
