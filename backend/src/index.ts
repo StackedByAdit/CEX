@@ -245,6 +245,34 @@ app.post("/order", async (req: Request, res: Response) => {
             }
         }
 
+
+        else {
+
+            if (stockBalance.available < quantity) {
+                return res.status(400).json({
+                    message: `INSUFFICIENT ${symbol}`
+                });
+            }
+
+            await prisma.balance.update({
+                where: {
+                    id: stockBalance.id
+                },
+                data: {
+                    available: {
+                        decrement: quantity
+                    },
+                    locked: {
+                        increment: quantity
+                    }
+                }
+            });
+        }
+
+
+
+        
+
     } catch (e) {
 
         console.log(e);
