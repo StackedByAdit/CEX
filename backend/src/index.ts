@@ -3,31 +3,36 @@ import type { Request, Response } from "express";
 import { AssetType, PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcrypt";
-import { signupSchema } from "./schemas/zodSchema";
+import { loginSchema, signupSchema } from "./schemas/zodSchema";
+import jwt from "jsonwebtoken";
+
+const PORT = 3000;
+
+const JWT_SECRET = "secretkey123";
 
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL!,
+    connectionString: process.env.DATABASE_URL!,
 });
 
 const app = express();
 app.use(express.json());
 
 const STOCKS = [
-  { id: 1, title: "AXIS BANK", symbol: "AXIS" },
-  { id: 2, title: "HDFC BANK", symbol: "HDFC" },
-  { id: 3, title: "TATA Steel", symbol: "TATA" },
+    { id: 1, title: "AXIS BANK", symbol: "AXIS" },
+    { id: 2, title: "HDFC BANK", symbol: "HDFC" },
+    { id: 3, title: "TATA Steel", symbol: "TATA" },
 ];
 
 const ORDERS = [];
 const ORDERBOOK = {
-  AXIS: { bids: {}, asks: {} },
-  HDFC: { bids: {}, asks: {} },
-  TATA: { bids: {}, asks: {} },
+    AXIS: { bids: {}, asks: {} },
+    HDFC: { bids: {}, asks: {} },
+    TATA: { bids: {}, asks: {} },
 };
 
-const prisma = new PrismaClient({adapter});
+const prisma = new PrismaClient({ adapter });
 
-app.post("/signup", async (req: Request, res : Response) => {
+app.post("/signup", async (req: Request, res: Response) => {
 
     const result = signupSchema.safeParse(req.body);
 
@@ -42,7 +47,6 @@ app.post("/signup", async (req: Request, res : Response) => {
 
     try {
 
-        // check existing user
         const existingUser = await prisma.user.findUnique({
             where: {
                 username
@@ -55,10 +59,8 @@ app.post("/signup", async (req: Request, res : Response) => {
             });
         }
 
-        // hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // create user
         const newUser = await prisma.user.create({
             data: {
                 username,
@@ -66,7 +68,6 @@ app.post("/signup", async (req: Request, res : Response) => {
             }
         });
 
-        // create INR balance
         await prisma.balance.create({
             data: {
                 userId: newUser.id,
@@ -90,3 +91,72 @@ app.post("/signup", async (req: Request, res : Response) => {
         });
     }
 });
+
+
+app.post("/login", async (req: Request, res: Response) => {
+
+    try {
+
+        const result = loginSchema.safeParse(req.body);
+
+        if (!result.success) {
+            return res.status(400).json({
+                message: "Invalid input",
+                error: result.error.issues
+            });
+        }
+
+        const { username, password } = result.data;
+
+        const user = await prisma.user.findUnique({
+            where: {
+                username
+            }
+        });
+
+        if (!user) {
+            return res.status(401).json({
+                message: "Invalid credentials"
+            });
+        }
+
+        const isCorrect = await bcrypt.compare(
+            password,
+            user.password
+        );
+
+        if (!isCorrect) {
+            return res.status(401).json({
+                message: "Invalid credentials"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                id: user.id,
+                username: user.username
+            },
+            JWT_SECRET,
+            {
+                expiresIn: "1h"
+            }
+        );
+
+        return res.status(200).json({
+            message: "Login successful",
+            token
+        });
+
+    } catch (err) {
+
+        console.log(err);
+
+        return res.status(500).json({
+            message: "Internal server error"
+        });
+    }
+});
+
+app.listen((PORT), () => {
+    console.log(`Running on port ${PORT}`)
+})
