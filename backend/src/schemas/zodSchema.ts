@@ -11,11 +11,10 @@ export const loginSchema = z.object({
 })
 
 export const orderSchema = z.object({
-    userId : z.number(),
+    userId : z.string(),
     side : z.enum(["BUY", "SELL"]),
     type : z.enum(["LIMIT", "MARKET"]),
     symbol : z.string(),
     price : z.number().optional(),
     quantity : z.number()
-
 })

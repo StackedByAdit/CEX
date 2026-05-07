@@ -1,6 +1,6 @@
 import { prisma } from "../prisma";
 
-async function assureBalance(userId: string, symbol: string) {
+export async function assureBalance(userId: string, symbol: string) {
 
     let balance = await prisma.balance.findFirst({
         where: {

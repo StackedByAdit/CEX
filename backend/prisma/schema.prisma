@@ -91,8 +91,8 @@ model Fill {
   buyOrderId  String
   sellOrderId String
 
-  price    Float
-  quantity Float
+  price    Decimal
+  quantity Decimal
 
   buyOrder  Order @relation("BuyOrder", fields: [buyOrderId], references: [id])
   sellOrder Order @relation("SellOrder", fields: [sellOrderId], references: [id])
