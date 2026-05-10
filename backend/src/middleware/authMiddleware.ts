@@ -8,7 +8,7 @@ interface myJwtPayload extends JwtPayload {
 }
 
 interface customRequest extends Request {
-    userId : string;
+    userId? : string;
 }
 
 export async function authMiddleware(req: customRequest, res: Response, next: NextFunction) {

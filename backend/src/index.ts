@@ -8,10 +8,10 @@ import jwt from "jsonwebtoken";
 import { assureBalance } from "./utils/assureBalance";
 import { matchOrder } from "./utils/matchOrder";
 import type { MemoryOrder } from "./types/order";
+import { ORDERBOOK } from "./state";
+import { JWT_SECRET } from "./middleware/authMiddleware";
 
 const PORT = 3000;
-
-const JWT_SECRET = "secretkey123";
 
 const app = express();
 app.use(express.json());
@@ -22,20 +22,7 @@ const STOCKS = [
     { id: 3, title: "TATA Steel", symbol: "TATA" },
 ];
 
-
-
 const ORDERS : MemoryOrder[] = [];
-const ORDERBOOK: Record<
-    string,
-    {
-        bids: Record<number, MemoryOrder[]>;
-        asks: Record<number, MemoryOrder[]>;
-    }
-> = {
-    AXIS: { bids: {}, asks: {} },
-    HDFC: { bids: {}, asks: {} },
-    TATA: { bids: {}, asks: {} },
-};
 
 app.post("/signup", async (req: Request, res: Response) => {
 
@@ -96,7 +83,6 @@ app.post("/signup", async (req: Request, res: Response) => {
         });
     }
 });
-
 
 app.post("/login", async (req: Request, res: Response) => {
 
@@ -215,14 +201,12 @@ app.post("/order", async (req: Request, res: Response) => {
 
                 const amount = price * quantity;
 
-                // insufficient INR
                 if (inrBalance.available < amount) {
                     return res.status(400).json({
                         message: "INSUFFICIENT INR"
                     });
                 }
 
-                // lock INR
                 await prisma.balance.update({
                     where: {
                         id: inrBalance.id
@@ -244,7 +228,6 @@ app.post("/order", async (req: Request, res: Response) => {
                 });
             }
         }
-
 
         else {
 
@@ -296,9 +279,7 @@ app.post("/order", async (req: Request, res: Response) => {
             status: "PENDING"
         };
 
-
         matchOrder(currOrder);
-
 
         await prisma.order.update({
             where: {
@@ -309,7 +290,6 @@ app.post("/order", async (req: Request, res: Response) => {
                 status: currOrder.status
             }
         });
-
 
         if (currOrder.filledQuantity < currOrder.quantity) {
 
@@ -373,7 +353,6 @@ app.post("/order", async (req: Request, res: Response) => {
         });
     }
 });
-
 
 app.listen((PORT), () => {
     console.log(`Running on port ${PORT}`)
