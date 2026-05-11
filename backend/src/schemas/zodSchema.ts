@@ -11,7 +11,6 @@ export const loginSchema = z.object({
 })
 
 export const orderSchema = z.object({
-    userId : z.string(),
     side : z.enum(["BUY", "SELL"]),
     type : z.enum(["LIMIT", "MARKET"]),
     symbol : z.string(),

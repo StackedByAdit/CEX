@@ -69,9 +69,9 @@ model Order {
   type   OrderType
   status OrderStatus @default(PENDING)
 
-  price          Float?
-  quantity       Float
-  filledQuantity Float  @default(0)
+  price          Decimal?
+  quantity       Decimal
+  filledQuantity Decimal  @default(0)
 
   user  User  @relation(fields: [userId], references: [id])
   stock Stock @relation(fields: [stockId], references: [id])
@@ -110,8 +110,8 @@ model Balance {
 
   assetType AssetType
 
-  available Float @default(0)
-  locked    Float @default(0)
+  available Decimal @default(0)
+  locked    Decimal @default(0)
 
   user  User   @relation(fields: [userId], references: [id])
   stock Stock? @relation(fields: [stockId], references: [id])

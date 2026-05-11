@@ -9,7 +9,7 @@ import { assureBalance } from "./utils/assureBalance";
 import { matchOrder } from "./utils/matchOrder";
 import type { MemoryOrder } from "./types/order";
 import { ORDERBOOK } from "./state";
-import { JWT_SECRET } from "./middleware/authMiddleware";
+import { authMiddleware, JWT_SECRET, type customRequest } from "./middleware/authMiddleware";
 
 const PORT = 3000;
 
@@ -148,7 +148,7 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 });
 
-app.post("/order", async (req: Request, res: Response) => {
+app.post("/order", authMiddleware, async (req: customRequest, res: Response) => {
 
     const result = orderSchema.safeParse(req.body);
 
@@ -158,9 +158,10 @@ app.post("/order", async (req: Request, res: Response) => {
             error: result.error.issues
         });
     }
+    
+    const userId = req.userId!;
 
     const {
-        userId,
         side,
         type,
         symbol,
@@ -201,7 +202,7 @@ app.post("/order", async (req: Request, res: Response) => {
 
                 const amount = price * quantity;
 
-                if (inrBalance.available < amount) {
+                if (inrBalance.available.toNumber() < amount) {
                     return res.status(400).json({
                         message: "INSUFFICIENT INR"
                     });
@@ -231,7 +232,7 @@ app.post("/order", async (req: Request, res: Response) => {
 
         else {
 
-            if (stockBalance.available < quantity) {
+            if (stockBalance.available.toNumber() < quantity) {
                 return res.status(400).json({
                     message: `INSUFFICIENT ${symbol}`
                 });
