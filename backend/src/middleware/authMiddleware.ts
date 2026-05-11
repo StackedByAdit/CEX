@@ -7,7 +7,7 @@ interface myJwtPayload extends JwtPayload {
     id : string;
 }
 
-interface customRequest extends Request {
+export interface customRequest extends Request {
     userId? : string;
 }
 
@@ -27,7 +27,6 @@ export async function authMiddleware(req: customRequest, res: Response, next: Ne
 
         req.userId = verified.id
 
-
         next();
 
     } catch (e) {
@@ -36,6 +35,4 @@ export async function authMiddleware(req: customRequest, res: Response, next: Ne
             message: "Invalid token"
         })
     }
-
-
 }
