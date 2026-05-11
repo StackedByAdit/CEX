@@ -22,7 +22,7 @@ const STOCKS = [
     { id: 3, title: "TATA Steel", symbol: "TATA" },
 ];
 
-const ORDERS : MemoryOrder[] = [];
+const ORDERS: MemoryOrder[] = [];
 
 app.post("/signup", async (req: Request, res: Response) => {
 
@@ -158,7 +158,7 @@ app.post("/order", authMiddleware, async (req: customRequest, res: Response) => 
             error: result.error.issues
         });
     }
-    
+
     const userId = req.userId!;
 
     const {
@@ -189,6 +189,8 @@ app.post("/order", authMiddleware, async (req: customRequest, res: Response) => 
             userId,
             symbol
         );
+
+        let estimatedCost = 0;
 
         if (side === "BUY") {
 
@@ -224,13 +226,70 @@ app.post("/order", authMiddleware, async (req: customRequest, res: Response) => 
             }
 
             if (type === "MARKET") {
-                return res.status(400).json({
-                    message: "MARKET BUY not supported, will implement it soon"
+                const book = ORDERBOOK[symbol];
+
+                if (!book) {
+                    return res.status(400).json({
+                        message: "Invalid symbol"
+                    });
+                }
+
+                const askPrices = Object.keys(book.asks)
+                    .map(Number)
+                    .sort((a, b) => a - b);
+
+                let remainingQty = quantity;
+
+                for (const askPrice of askPrices) {
+
+                    const orders = book.asks[askPrice];
+
+                    if (!orders) continue;
+
+                    for (const ask of orders) {
+
+                        const fillable = Math.min(
+                            remainingQty,
+                            ask.quantity - ask.filledQuantity
+                        );
+
+                        estimatedCost += fillable * askPrice;
+                        remainingQty -= fillable;
+
+                        if (remainingQty <= 0) break;
+                    }
+
+                    if (remainingQty <= 0) break;
+                }
+
+                if (remainingQty > 0) {
+                    return res.status(400).json({
+                        message: "Insufficient liquidity to fill MARKET BUY order"
+                    });
+                }
+
+                if (inrBalance.available.toNumber() < estimatedCost) {
+                    return res.status(400).json({
+                        message: "INSUFFICIENT INR"
+                    });
+                }
+
+                await prisma.balance.update({
+                    where: {
+                        id: inrBalance.id
+                    },
+                    data: {
+                        available: {
+                            decrement: estimatedCost
+                        },
+                        locked: {
+                            increment: estimatedCost
+                        }
+                    }
                 });
             }
-        }
 
-        else {
+        } else {
 
             if (stockBalance.available.toNumber() < quantity) {
                 return res.status(400).json({
@@ -281,6 +340,23 @@ app.post("/order", authMiddleware, async (req: customRequest, res: Response) => 
         };
 
         matchOrder(currOrder);
+
+        if (currOrder.side === "BUY" && currOrder.type === "MARKET") {
+
+            const actualCost = 
+                currOrder.filledQuantity * (currOrder.price ?? 0);
+
+            const refund = estimatedCost - actualCost;
+            if (refund > 0) {
+                await prisma.balance.update({
+                    where: { id: inrBalance.id },
+                    data: {
+                        available: { increment: refund },
+                        locked: { decrement: refund }
+                    }
+                });
+            }
+        }
 
         await prisma.order.update({
             where: {
