@@ -420,4 +420,21 @@ app.get("/orders", authMiddleware, async (req: CustomRequest, res: Response) => 
     });
 });
 
+app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const balances = await prisma.balance.findMany({
+        where: {
+            userId: req.id
+        },
+        include: {
+            stock: true
+        }
+    });
+
+    return res.json({
+        balances
+    });
+
+});
+
 app.listen(PORT, () => console.log("CEX running on :3000"));
