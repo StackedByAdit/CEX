@@ -452,4 +452,13 @@ app.get("/fills/:symbol", authMiddleware, async (req: CustomRequest, res: Respon
     });
 });
 
+app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const stocks = await prisma.stock.findMany();
+
+    return res.status(200).json({
+        stocks
+    });
+});
+
 app.listen(PORT, () => console.log("CEX running on :3000"));
