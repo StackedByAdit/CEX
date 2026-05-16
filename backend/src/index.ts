@@ -189,6 +189,10 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         });
     }
 
+    if (!ORDERBOOK[symbol]) {
+        ORDERBOOK[symbol] = { bids: {}, asks: {} };
+    }
+
     const stockId = stock.id;
 
     const inrBalance = await assureBalance(userId, "INR");
