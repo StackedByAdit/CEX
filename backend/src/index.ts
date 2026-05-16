@@ -420,6 +420,38 @@ app.get("/orders", authMiddleware, async (req: CustomRequest, res: Response) => 
     });
 });
 
+
+app.get("/orderbook/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const symbol = req.params.symbol as string;
+    const firm = ORDERBOOK[symbol];
+
+    if (!firm) {
+        return res.status(404).json({ message: "Symbol not found" });
+    }
+
+    const bids: Record<string, number> = {};
+    for (const [price, orders] of Object.entries(firm.bids)) {
+        let total = 0;
+        for (const order of orders) {
+            total += order.quantity - order.filledQuantity;
+        }
+        bids[price] = total;
+    }
+
+    const asks: Record<string, number> = {};
+    for (const [price, orders] of Object.entries(firm.asks)) {
+        let total = 0;
+        for (const order of orders) {
+            total += order.quantity - order.filledQuantity;
+        }
+        asks[price] = total;
+    }
+
+    return res.status(200).json({ bids, asks });
+});
+
+
 app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) => {
 
     const balances = await prisma.balance.findMany({
@@ -460,5 +492,7 @@ app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => 
         stocks
     });
 });
+
+
 
 app.listen(PORT, () => console.log("CEX running on :3000"));
