@@ -206,7 +206,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
             const amount = price * quantity;
 
-            if ((await inrBalance).available.toNumber() < amount) {
+            if (inrBalance.available.toNumber() < amount) {
                 return res.status(400).json({
                     message: "INSUFFICIENT INR"
                 })
@@ -283,6 +283,12 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     ORDERS.push(currOrder);
 
     const result = await matchOrder(currOrder, stock.id);
+
+    if (result.status !== "FILLED" && type === "LIMIT") {
+        const levels = side === "BUY" ? ORDERBOOK[symbol]!.bids : ORDERBOOK[symbol]!.asks;
+        levels[price!] = levels[price!] ?? [];
+        levels[price!]!.push(currOrder);
+    }
 
     await prisma.order.update({
         where: { id: dbOrder.id },
@@ -492,7 +498,5 @@ app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => 
         stocks
     });
 });
-
-
 
 app.listen(PORT, () => console.log("CEX running on :3000"));
