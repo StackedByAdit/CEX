@@ -311,6 +311,109 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
 });
 
+app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const orderId = req.params.orderId as string;
+
+    const order = ORDERS.find(order => order.id === orderId);
+
+    if (!order) {
+        return res.status(404).json({
+            message: "Order not found"
+        });
+    }
+
+    if (order.userId !== req.id) {
+        return res.status(403).json({
+            message: "Not your order"
+        });
+    }
+
+    if (order.status === "CANCELLED" || order.status === "FILLED") {
+        return res.status(400).json({
+            message: "Order cannot be cancelled"
+        });
+    }
+
+    const aboutOrder = order.side === "BUY" ? ORDERBOOK[order.symbol]!.bids : ORDERBOOK[order.symbol]!.asks;
+
+    const ordersAtPrice = aboutOrder[order.price!];
+
+    if(!ordersAtPrice){
+        return res.status(404).json({
+            message: "Order not found in orderbook"
+        });
+    }
+
+    const index = ordersAtPrice.findIndex(order => order.id === orderId);
+
+
+    if (index === -1) {
+
+        return res.status(404).json({
+            message: "Order not found in orderbook"
+        });
+
+    } else {
+        ordersAtPrice.splice(index, 1);
+        if (ordersAtPrice.length === 0) {
+            delete aboutOrder[order.price!];
+        }
+    }
+
+    order.status = "CANCELLED";
+
+    await prisma.order.update({
+        where: { id: orderId },
+        data: { status: "CANCELLED" },
+    });
+
+    const price = order.price!;
+    const quantity = order.quantity - order.filledQuantity;
+
+    if (order.side === "BUY") {
+        await prisma.balance.updateMany({
+            where: {
+                userId: order.userId,
+                assetType: "INR"
+            },
+            data: {
+                available: {
+                    increment: price * quantity
+                },
+                locked: {
+                    decrement: price * quantity
+                }
+            }
+        });
+    } else {
+        const stock = await prisma.stock.findUnique({
+            where: {
+                symbol: order.symbol
+            }
+        });
+        await prisma.balance.updateMany({
+            where: {
+                userId: order.userId,
+                assetType: "STOCK",
+                stockId: stock!.id
+            },
+            data: {
+                available: {
+                    increment: quantity
+                },
+                locked: {
+                    decrement: quantity
+                }
+            }
+        });
+    }
+
+    return res.status(200).json({
+        message: "Order cancelled"
+    });
+
+});
 
 
 
