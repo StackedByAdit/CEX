@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import bcrypt from "bcrypt"
 import { prisma } from "./prisma";
 import { AssetType } from "../generated/prisma/client";
+import type { OrderStatus } from "../generated/prisma/client";
 const express = require("express");
 const app = express();
 app.use(express.json());
@@ -162,19 +163,6 @@ app.post("/login", async (req: Request, res: Response) => {
     }
 });
 
-app.post("/check", authMiddleware, async (req: CustomRequest, res: Response) => {
-
-    const checkId = req.id;
-    const checkUser = req.user;
-
-    console.log("CHECK ID:", checkId);
-    console.log("CHECK USER:", checkUser);
-
-    return res.json({
-        message: "User is authenticated"
-    });
-});
-
 app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => {
 
     const order = orderSchema.safeParse(req.body);
@@ -292,7 +280,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         filledQuantity: 0
     };
 
-    ORDERS.push(currOrder); 
+    ORDERS.push(currOrder);
 
     const result = await matchOrder(currOrder, stock.id);
 
@@ -339,7 +327,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 
     const ordersAtPrice = aboutOrder[order.price!];
 
-    if(!ordersAtPrice){
+    if (!ordersAtPrice) {
         return res.status(404).json({
             message: "Order not found in orderbook"
         });
@@ -416,6 +404,20 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 });
 
 
+app.get("/orders", authMiddleware, async (req: CustomRequest, res: Response) => {
 
+    const status = req.query.status ? String(req.query.status).toUpperCase() as OrderStatus : undefined;
+
+    const orders = await prisma.order.findMany({
+        where: {
+            userId: req.id,
+            status
+        }
+    });
+
+    return res.status(200).json({
+        orders
+    });
+});
 
 app.listen(PORT, () => console.log("CEX running on :3000"));
