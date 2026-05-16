@@ -1,38 +1,48 @@
 import type { Request, Response, NextFunction } from "express";
-import jwt, { type JwtPayload } from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 
-export const JWT_SECRET = "secretkey123";
+const JWT_SECRET = process.env.JWT_SECRET!;
 
-interface myJwtPayload extends JwtPayload {
-    id : string;
+
+export interface CustomRequest extends Request {
+    user?: string;
+    id?: string;
 }
 
-export interface customRequest extends Request {
-    userId? : string;
+interface MyJwtPayload extends JwtPayload {
+    username: string;
+    id: string;
 }
 
-export async function authMiddleware(req: customRequest, res: Response, next: NextFunction) {
-
+export async function authMiddleware(
+    req: CustomRequest,
+    res: Response,
+    next: NextFunction
+) {
     try {
+        const authHeader = req.headers.authorization;
 
-        const token = req.headers.authorization;
-
-        if (!token) {
+        if (!authHeader) {
             return res.status(400).json({
-                message: "No token"
-            })
+                message: "token missing"
+            });
         }
 
-        const verified = jwt.verify(token, JWT_SECRET) as myJwtPayload;
+        const token = authHeader.split(" ")[1]!;
 
-        req.userId = verified.id
+        const verified = jwt.verify(token, JWT_SECRET) as JwtPayload;
+
+        req.user = verified.username;
+        req.id = verified.id;
 
         next();
 
     } catch (e) {
 
+        console.log(e);
+
         return res.status(401).json({
-            message: "Invalid token"
-        })
+            message: "invalid token"
+        });
     }
 }
