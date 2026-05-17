@@ -14,18 +14,11 @@ import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
 import { matchOrder } from "./utils/matchOrder";
+import { ORDERS, ORDERBOOK } from "./state";
 
 const PORT = 3000;
 
 const JWT_SECRET = process.env.JWT_SECRET!;
-
-const ORDERS: MemoryOrder[] = [];
-
-export const ORDERBOOK: Record<string, { asks: Record<number, MemoryOrder[]>; bids: Record<number, MemoryOrder[]> }> = {
-    AXIS: { asks: {}, bids: {} },
-    SOL: { asks: {}, bids: {} },
-    HDFC: { asks: {}, bids: {} },
-};
 
 app.post("/signup", async (req: Request, res: Response) => {
 
@@ -288,11 +281,11 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
     const result = await matchOrder(currOrder, stock.id);
 
-    if (result.status !== "FILLED" && type === "LIMIT") {
-        const levels = side === "BUY" ? ORDERBOOK[symbol]!.bids : ORDERBOOK[symbol]!.asks;
-        levels[price!] = levels[price!] ?? [];
-        levels[price!]!.push(currOrder);
-    }
+    // if (result.status !== "FILLED" && type === "LIMIT") {
+    //     const levels = side === "BUY" ? ORDERBOOK[symbol]!.bids : ORDERBOOK[symbol]!.asks;
+    //     levels[price!] = levels[price!] ?? [];
+    //     levels[price!]!.push(currOrder);
+    // }
 
     await prisma.order.update({
         where: { id: dbOrder.id },

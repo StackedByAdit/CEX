@@ -1,10 +1,9 @@
 import type { MemoryOrder } from "./types/order";
 
-export const ORDERBOOK: Record<string, {
-    bids: Record<number, MemoryOrder[]>;
-    asks: Record<number, MemoryOrder[]>;
-}> = {
-    AXIS: { bids: {}, asks: {} },
-    HDFC: { bids: {}, asks: {} },
-    TATA: { bids: {}, asks: {} },
+export const ORDERS: MemoryOrder[] = [];
+
+export const ORDERBOOK: Record<string, { asks: Record<number, MemoryOrder[]>; bids: Record<number, MemoryOrder[]> }> = {
+    AXIS: { asks: {}, bids: {} },
+    SOL: { asks: {}, bids: {} },
+    HDFC: { asks: {}, bids: {} },
 };
