@@ -6,6 +6,7 @@ import type { OrderStatus } from "../generated/prisma/client";
 const express = require("express");
 const app = express();
 app.use(express.json());
+import { redisClient } from "./redis";
 
 import jwt from "jsonwebtoken";
 
@@ -277,20 +278,15 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         filledQuantity: 0
     };
 
-    ORDERS.push(currOrder);
+    await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId: stock.id }));
 
-    const result = await matchOrder(currOrder, stock.id);
+    const redisRes = await redisClient.blpop(`result:${dbOrder.id}`, 10);
 
-    // if (result.status !== "FILLED" && type === "LIMIT") {
-    //     const levels = side === "BUY" ? ORDERBOOK[symbol]!.bids : ORDERBOOK[symbol]!.asks;
-    //     levels[price!] = levels[price!] ?? [];
-    //     levels[price!]!.push(currOrder);
-    // }
+    if (!redisRes) {
+        return res.status(408).json({ message: "Order processing timed out" });
+    }
 
-    await prisma.order.update({
-        where: { id: dbOrder.id },
-        data: { filledQuantity: result.filledQuantity, status: result.status },
-    });
+    const result = JSON.parse(redisRes[1]);
 
     return res.status(200).json({
         orderId: dbOrder.id,

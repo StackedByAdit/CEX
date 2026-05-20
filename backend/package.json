@@ -8,6 +8,7 @@
     "@types/bun": "latest",
     "@types/pg": "^8.20.0",
     "@types/redis": "^4.0.11",
+    "@types/ws": "^8.18.1",
     "prisma": "^7.8.0"
   },
   "peerDependencies": {
@@ -26,6 +27,7 @@
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0",
     "redis": "^5.12.1",
+    "ws": "^8.20.1",
     "zod": "^4.4.3"
   }
 }
