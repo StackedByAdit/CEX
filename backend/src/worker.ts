@@ -10,10 +10,10 @@ async function processOrder(order: MemoryOrder, stockId: string) {
 
     const result = await matchOrder(order, stockId);
 
-    await prisma.order.update({
+    prisma.order.update({
         where: { id: order.id },
         data: { filledQuantity: result.filledQuantity, status: result.status },
-    });
+    }).catch(err => console.error("DB sync error (order update):", err));
 
     await publisher.publish(`orderbook:${order.symbol}`, JSON.stringify({
         symbol: order.symbol,
