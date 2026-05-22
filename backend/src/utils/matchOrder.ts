@@ -1,5 +1,5 @@
 import { prisma } from "../prisma";
-import { ORDERBOOK } from "../state";
+import { ORDERBOOK, BALANCES } from "../state";
 import type { MemoryOrder } from "../types/order";
 import { assureBalance } from "./assureBalance";
 
@@ -37,32 +37,36 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                 order.filledQuantity += tradeQty;
                 sellOrder.filledQuantity += tradeQty;
 
-                const [sellerStockBalance, sellerInrBalance, buyerStockBalance, buyerInrBalance] =
-                    await Promise.all([
-                        assureBalance(sellOrder.userId, order.symbol),
-                        assureBalance(sellOrder.userId, "INR"),
-                        assureBalance(order.userId, order.symbol),
-                        assureBalance(order.userId, "INR"),
-                    ]);
+                const [sellerStock, sellerInr, buyerStock, buyerInr] = await Promise.all([
+                    assureBalance(sellOrder.userId, order.symbol),
+                    assureBalance(sellOrder.userId, "INR"),
+                    assureBalance(order.userId, order.symbol),
+                    assureBalance(order.userId, "INR"),
+                ]);
 
-                await Promise.all([
+                buyerInr.locked -= tradeQty * price;
+                buyerStock.available += tradeQty;
+                sellerStock.locked -= tradeQty;
+                sellerInr.available += tradeQty * price;
+
+                Promise.all([
                     prisma.fill.create({
                         data: { stockId, buyOrderId: order.id, sellOrderId: sellOrder.id, price, quantity: tradeQty },
                     }),
                     prisma.balance.update({
-                        where: { id: buyerInrBalance.id },
+                        where: { id: buyerInr.balanceId },
                         data: { locked: { decrement: tradeQty * price } },
                     }),
                     prisma.balance.update({
-                        where: { id: buyerStockBalance.id },
+                        where: { id: buyerStock.balanceId },
                         data: { available: { increment: tradeQty } },
                     }),
                     prisma.balance.update({
-                        where: { id: sellerStockBalance.id },
+                        where: { id: sellerStock.balanceId },
                         data: { locked: { decrement: tradeQty } },
                     }),
                     prisma.balance.update({
-                        where: { id: sellerInrBalance.id },
+                        where: { id: sellerInr.balanceId },
                         data: { available: { increment: tradeQty * price } },
                     }),
                     prisma.order.update({
@@ -72,7 +76,7 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                             status: sellOrder.filledQuantity === sellOrder.quantity ? "FILLED" : "PARTIALLY_FILLED",
                         },
                     }),
-                ]);
+                ]).catch(err => console.error("DB sync error (buy match):", err));
 
                 fills.push({ price, quantity: tradeQty });
 
@@ -110,32 +114,36 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                 order.filledQuantity += tradeQty;
                 buyOrder.filledQuantity += tradeQty;
 
-                const [buyerStockBalance, buyerInrBalance, sellerStockBalance, sellerInrBalance] =
-                    await Promise.all([
-                        assureBalance(buyOrder.userId, order.symbol),
-                        assureBalance(buyOrder.userId, "INR"),
-                        assureBalance(order.userId, order.symbol),
-                        assureBalance(order.userId, "INR"),
-                    ]);
+                const [buyerStock, buyerInr, sellerStock, sellerInr] = await Promise.all([
+                    assureBalance(buyOrder.userId, order.symbol),
+                    assureBalance(buyOrder.userId, "INR"),
+                    assureBalance(order.userId, order.symbol),
+                    assureBalance(order.userId, "INR"),
+                ]);
 
-                await Promise.all([
+                buyerInr.locked -= tradeQty * price;
+                buyerStock.available += tradeQty;
+                sellerStock.locked -= tradeQty;
+                sellerInr.available += tradeQty * price;
+
+                Promise.all([
                     prisma.fill.create({
                         data: { stockId, buyOrderId: buyOrder.id, sellOrderId: order.id, price, quantity: tradeQty },
                     }),
                     prisma.balance.update({
-                        where: { id: buyerInrBalance.id },
+                        where: { id: buyerInr.balanceId },
                         data: { locked: { decrement: tradeQty * price } },
                     }),
                     prisma.balance.update({
-                        where: { id: buyerStockBalance.id },
+                        where: { id: buyerStock.balanceId },
                         data: { available: { increment: tradeQty } },
                     }),
                     prisma.balance.update({
-                        where: { id: sellerStockBalance.id },
+                        where: { id: sellerStock.balanceId },
                         data: { locked: { decrement: tradeQty } },
                     }),
                     prisma.balance.update({
-                        where: { id: sellerInrBalance.id },
+                        where: { id: sellerInr.balanceId },
                         data: { available: { increment: tradeQty * price } },
                     }),
                     prisma.order.update({
@@ -145,7 +153,7 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                             status: buyOrder.filledQuantity === buyOrder.quantity ? "FILLED" : "PARTIALLY_FILLED",
                         },
                     }),
-                ]);
+                ]).catch(err => console.error("DB sync error (sell match):", err));
 
                 fills.push({ price, quantity: tradeQty });
 
