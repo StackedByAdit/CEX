@@ -7,6 +7,8 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 import { redisClient } from "./redis";
+import { initWS } from "./ws";
+
 
 import jwt from "jsonwebtoken";
 
@@ -410,6 +412,15 @@ app.get("/fills/:symbol", authMiddleware, async (req: CustomRequest, res: Respon
     return res.status(200).json({ fills });
 });
 
+app.get("/ticker/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
+    const lastFill = await prisma.fill.findFirst({
+        where: { stock: { symbol: req.params.symbol as string } },
+        orderBy: { createdAt: "desc" }
+    });
+    return res.json({ price: lastFill?.price ?? null });
+});
+
+
 app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => {
 
     const stocks = await prisma.stock.findMany();
@@ -428,6 +439,7 @@ async function bootstrap() {
             balanceId: balance.id
         };
     }
+    initWS(8080);
     app.listen(PORT, () => console.log("CEX running on :3000"));
 }
 
