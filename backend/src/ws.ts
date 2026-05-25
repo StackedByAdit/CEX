@@ -2,6 +2,9 @@ import { WebSocketServer, WebSocket } from "ws";
 import { subscriber } from "./redis";
 import { BALANCES, ORDERBOOK } from "./state";
 import jwt from "jsonwebtoken";
+import { prisma } from "./prisma";
+
+type AliveWebSocket = WebSocket & { isAlive?: boolean };
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -20,12 +23,16 @@ export function initWS(port: number) {
 
         let userId: string | null = null;
 
+        const socket = ws as AliveWebSocket;
+        socket.isAlive = true;
+        socket.on("pong", () => { socket.isAlive = true; });
+
         if (token) {
             try {
                 const decoded = jwt.verify(token, JWT_SECRET) as { id: string; username: string };
                 userId = decoded.id;
                 userSockets.set(userId, ws);
-            } catch(e) {
+            } catch (e) {
                 console.log(e)
             }
         }
@@ -83,10 +90,6 @@ export function initWS(port: number) {
         });
     });
 
-    subscriber.subscribe("orderbook:AXIS", "orderbook:SOL", "orderbook:HDFC");
-    subscriber.subscribe("trades:AXIS", "trades:SOL", "trades:HDFC");
-    subscriber.subscribe("balance:update");
-
     subscriber.on("message", (channel, message) => {
 
         if (channel.startsWith("orderbook:")) {
@@ -121,4 +124,30 @@ export function initWS(port: number) {
             }
         }
     });
+
+    setInterval(() => {
+        wss.clients.forEach((client) => {
+            const socket = client as AliveWebSocket;
+            if (!socket.isAlive) return socket.terminate();
+            socket.isAlive = false;
+            socket.ping();
+        });
+    }, 30000);
+
+    async function subscribeToSymbols() {
+        const stocks = await prisma.stock.findMany();
+        const symbols = stocks.map(s => s.symbol);
+        const orderbookChannels = symbols.map(s => `orderbook:${s}`);
+        const tradeChannels = symbols.map(s => `trades:${s}`);
+
+        await subscriber.subscribe(...orderbookChannels, ...tradeChannels, "balance:update");
+        console.log("Subscribed to:", [...orderbookChannels, ...tradeChannels]);
+    }
+
+    subscribeToSymbols();
+
+    subscriber.on("reconnecting", () => {
+        subscribeToSymbols();
+    });
+
 }
