@@ -3,8 +3,8 @@ import axios from "axios";
 const BASE_URL = "http://localhost:3000";
 
 const USERS = [
-    { username: `trader1`, password: "password123" },
-    { username: `trader2`, password: "password123" },
+    { username: `trader_${Date.now()}_1`, password: "password123" },
+    { username: `trader_${Date.now()}_2`, password: "password123" },
 ];
 
 const SYMBOLS = ["SOL"];
