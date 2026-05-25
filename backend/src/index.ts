@@ -6,7 +6,7 @@ import type { OrderStatus } from "../generated/prisma/client";
 const express = require("express");
 const app = express();
 app.use(express.json());
-import { redisClient } from "./redis";
+import { redisClient, resultClient } from "./redis";
 import { initWS } from "./ws";
 
 
@@ -17,6 +17,7 @@ import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
 import { ORDERS, ORDERBOOK, BALANCES } from "./state";
+import { runWorker } from "./worker";
 const PORT = 3000;
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -59,13 +60,14 @@ app.post("/signup", async (req: Request, res: Response) => {
                         userId: newUser.id,
                         assetType: AssetType.STOCK,
                         stockId: stock.id,
-                        available: 100,
+                        available: 100000000,
                         locked: 0
                     }
                 });
                 if (!BALANCES[newUser.id]) BALANCES[newUser.id] = {};
+
                 BALANCES[newUser.id]![stock.symbol] = {
-                    available: 100,
+                    available: 1000000000,
                     locked: 0,
                     balanceId: balance.id
                 };
@@ -76,13 +78,13 @@ app.post("/signup", async (req: Request, res: Response) => {
             data: {
                 userId: newUser.id,
                 assetType: AssetType.INR,
-                available: 100000,
+                available: 100000000000,
                 locked: 0
             }
         });
 
         BALANCES[newUser.id]!["INR"] = {
-            available: 100000,
+            available: 100000000000,
             locked: 0,
             balanceId: inrBalance.id
         };
@@ -244,9 +246,9 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     };
 
     await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId: stock.id }));
+    console.log("Pushed to queue:", dbOrder.id);
 
-    const redisRes = await redisClient.blpop(`result:${dbOrder.id}`, 10);
-
+const redisRes = await resultClient.blpop(`result:${dbOrder.id}`, 10);
     if (!redisRes) {
         return res.status(408).json({ message: "Order processing timed out" });
     }
@@ -401,15 +403,13 @@ app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) =>
     return res.json({ balances });
 });
 
-app.get("/fills/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
-
+app.get("/trades/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
     const fills = await prisma.fill.findMany({
-        where: {
-            stock: { symbol: req.params.symbol as string }
-        }
+        where: { stock: { symbol: req.params.symbol as string } },
+        orderBy: { createdAt: "desc" },
+        take: 50
     });
-
-    return res.status(200).json({ fills });
+    return res.json({ fills });
 });
 
 app.get("/ticker/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
@@ -420,6 +420,16 @@ app.get("/ticker/:symbol", authMiddleware, async (req: CustomRequest, res: Respo
     return res.json({ price: lastFill?.price ?? null });
 });
 
+app.get("/fills/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const fills = await prisma.fill.findMany({
+        where: {
+            stock: { symbol: req.params.symbol as string }
+        }
+    });
+
+    return res.status(200).json({ fills });
+});
 
 app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => {
 
@@ -440,6 +450,7 @@ async function bootstrap() {
         };
     }
     initWS(8080);
+    runWorker().catch((err: Error) => console.error("Worker crashed:", err));
     app.listen(PORT, () => console.log("CEX running on :3000"));
 }
 
