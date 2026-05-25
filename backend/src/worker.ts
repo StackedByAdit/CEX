@@ -1,4 +1,4 @@
-import { redisClient, publisher } from "./redis";
+import { redisClient, publisher, workerClient } from "./redis";
 import { matchOrder } from "./utils/matchOrder";
 import { ORDERS, ORDERBOOK, BALANCES } from "./state";
 import { prisma } from "./prisma";
@@ -43,16 +43,17 @@ async function processOrder(order: MemoryOrder, stockId: string) {
     }
 
     await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
+    console.log("Result pushed for:", order.id);
 }
 
-async function run() {
+export async function runWorker() {
     console.log("Worker running...");
     while (true) {
-        const res = await redisClient.brpop("queue:orders", 0);
+        const res = await workerClient.brpop("queue:orders", 0);
         if (!res) continue;
+        console.log("Worker picked up order:", res[1]);
         const { stockId, ...order }: MemoryOrder & { stockId: string } = JSON.parse(res[1]);
         await processOrder(order, stockId);
+        console.log("Worker finished order:", order.id);
     }
 }
-
-run();
