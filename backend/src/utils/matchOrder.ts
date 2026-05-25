@@ -7,11 +7,13 @@ export interface MatchResult {
     status: MemoryOrder["status"];
     filledQuantity: number;
     fills: { price: number; quantity: number }[];
+    counterPartyUserIds: string[];
 }
 
 export async function matchOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
+    const counterPartyUserIds: string[] = [];
     const firm = ORDERBOOK[order.symbol];
-    if (!firm) return { status: order.status, filledQuantity: order.filledQuantity, fills: [] };
+    if (!firm) return { status: order.status, filledQuantity: order.filledQuantity, fills: [], counterPartyUserIds: [] };
 
     const fills: { price: number; quantity: number }[] = [];
 
@@ -33,6 +35,7 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                     order.quantity - order.filledQuantity,
                     sellOrder.quantity - sellOrder.filledQuantity
                 );
+                counterPartyUserIds.push(sellOrder.userId);
 
                 order.filledQuantity += tradeQty;
                 sellOrder.filledQuantity += tradeQty;
@@ -111,6 +114,8 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                     buyOrder.quantity - buyOrder.filledQuantity
                 );
 
+                counterPartyUserIds.push(buyOrder.userId);
+
                 order.filledQuantity += tradeQty;
                 buyOrder.filledQuantity += tradeQty;
 
@@ -188,5 +193,5 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
         order.status = "PENDING";
     }
 
-    return { status: order.status, filledQuantity: order.filledQuantity, fills };
+return { status: order.status, filledQuantity: order.filledQuantity, fills, counterPartyUserIds };
 }
