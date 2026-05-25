@@ -1,7 +1,8 @@
-import Redis from "ioredis";
+import {  PrismaClient } from "../generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-export const redisClient = new Redis();
-export const resultClient = new Redis();
-export const workerClient = new Redis();
-export const subscriber = new Redis();
-export const publisher = new Redis();
+const adapter = new PrismaPg({
+    connectionString: process.env.DATABASE_URL!,
+});
+
+export const prisma = new PrismaClient({ adapter });
