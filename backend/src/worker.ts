@@ -1,6 +1,6 @@
 import { redisClient, publisher } from "./redis";
 import { matchOrder } from "./utils/matchOrder";
-import { ORDERS, ORDERBOOK } from "./state";
+import { ORDERS, ORDERBOOK, BALANCES } from "./state";
 import { prisma } from "./prisma";
 import type { MemoryOrder } from "./types/order";
 
@@ -28,6 +28,18 @@ async function processOrder(order: MemoryOrder, stockId: string) {
             quantity: fill.quantity,
             timestamp: Date.now(),
         }));
+    }
+
+    if (result.fills.length > 0) {
+        const counterPartyUserIds = new Set<string>([order.userId, ...result.counterPartyUserIds]);
+        for (const userId of counterPartyUserIds) {
+            if (BALANCES[userId]) {
+                await publisher.publish("balance:update", JSON.stringify({
+                    userId,
+                    balances: BALANCES[userId]
+                }));
+            }
+        }
     }
 
     await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
