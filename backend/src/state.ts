@@ -9,3 +9,14 @@ export const ORDERBOOK: Record<string, { asks: Record<number, MemoryOrder[]>; bi
     SOL: { asks: {}, bids: {} },
     HDFC: { asks: {}, bids: {} },
 };
+
+export const CANDLES: Record<string, {
+    symbol: string;
+    interval: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    startTime: number;
+}> = {};
