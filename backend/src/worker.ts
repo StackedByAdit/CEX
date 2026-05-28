@@ -3,6 +3,7 @@ import { matchOrder } from "./utils/matchOrder";
 import { ORDERS, ORDERBOOK, BALANCES } from "./state";
 import { prisma } from "./prisma";
 import type { MemoryOrder } from "./types/order";
+import { processTrade } from "./utils/candle"; 
 
 async function processOrder(order: MemoryOrder, stockId: string) {
 
@@ -28,6 +29,12 @@ async function processOrder(order: MemoryOrder, stockId: string) {
             quantity: fill.quantity,
             timestamp: Date.now(),
         }));
+        
+        try {
+            await processTrade(order.symbol, fill.price, fill.quantity, Date.now());
+        } catch (err) {
+            console.error("Candle processing error:", err); 
+        }
     }
 
     if (result.fills.length > 0) {
