@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { subscriber } from "./redis";
-import { BALANCES, ORDERBOOK } from "./state";
+import { BALANCES, CANDLES, ORDERBOOK } from "./state";
 import jwt from "jsonwebtoken";
 import { prisma } from "./prisma";
 
@@ -9,6 +9,7 @@ type AliveWebSocket = WebSocket & { isAlive?: boolean };
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 const orderbookSubs = new Map<string, Set<WebSocket>>();
+const candleSubs = new Map<string, Set<WebSocket>>();
 
 const userSockets = new Map<string, WebSocket>();
 
@@ -75,6 +76,25 @@ export function initWS(port: number) {
                     }));
                 }
 
+                if (msg.type === "SUBSCRIBE_CANDLE") {
+                    const symbol = msg.symbol as string;
+                    const interval = msg.interval as string;
+                    const key = `${symbol}:${interval}`;
+
+                    if (!candleSubs.has(key)) candleSubs.set(key, new Set());
+                    candleSubs.get(key)!.add(ws);
+
+                    const current = CANDLES[key];
+                    if (current) {
+                        ws.send(JSON.stringify({ type: "CANDLE_SNAPSHOT", ...current }));
+                    }
+                }
+
+                if (msg.type === "UNSUBSCRIBE_CANDLE") {
+                    const key = `${msg.symbol}:${msg.interval}`;
+                    candleSubs.get(key)?.delete(ws);
+                }
+
             } catch {
                 ws.send(JSON.stringify({ type: "ERROR", message: "Invalid message" }));
             }
@@ -87,6 +107,12 @@ export function initWS(port: number) {
             if (userId) {
                 userSockets.delete(userId);
             }
+
+            ws.on("close", () => {
+                for (const subs of orderbookSubs.values()) subs.delete(ws);
+                for (const subs of candleSubs.values()) subs.delete(ws);
+                if (userId) userSockets.delete(userId);
+            });
         });
     });
 
@@ -123,6 +149,18 @@ export function initWS(port: number) {
                 client.send(JSON.stringify({ type: "BALANCE_UPDATE", balances: data.balances }));
             }
         }
+
+        if (channel.startsWith("candle:")) {
+            const [, symbol, interval] = channel.split(":");
+            const subs = candleSubs.get(`${symbol}:${interval}`);
+            if (!subs) return;
+            const payload = JSON.stringify({ type: "CANDLE_UPDATE", ...JSON.parse(message) });
+            for (const client of subs) {
+                if (client.readyState === WebSocket.OPEN) {
+                    client.send(payload);
+                }
+            }
+        }
     });
 
     setInterval(() => {
@@ -139,8 +177,11 @@ export function initWS(port: number) {
         const symbols = stocks.map(s => s.symbol);
         const orderbookChannels = symbols.map(s => `orderbook:${s}`);
         const tradeChannels = symbols.map(s => `trades:${s}`);
+        const candleChannels = symbols.flatMap(s =>
+            ["1m", "5m", "15m", "1h", "4h", "1d"].map(i => `candle:${s}:${i}`)
+        );
 
-        await subscriber.subscribe(...orderbookChannels, ...tradeChannels, "balance:update");
+        await subscriber.subscribe(...orderbookChannels, ...tradeChannels, ...candleChannels, "balance:update");
         console.log("Subscribed to:", [...orderbookChannels, ...tradeChannels]);
     }
 
