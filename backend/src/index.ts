@@ -16,7 +16,7 @@ import { loginSchema, orderSchema, signupSchema } from "./schemas/zodSchema";
 import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
-import { ORDERS, ORDERBOOK, BALANCES } from "./state";
+import { ORDERS, ORDERBOOK, BALANCES, CANDLES } from "./state";
 import { runWorker } from "./worker";
 const PORT = 3000;
 
@@ -248,12 +248,14 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId: stock.id }));
     console.log("Pushed to queue:", dbOrder.id);
 
-const redisRes = await resultClient.blpop(`result:${dbOrder.id}`, 10);
+    const redisRes = await resultClient.blpop(`result:${dbOrder.id}`, 10);
     if (!redisRes) {
         return res.status(408).json({ message: "Order processing timed out" });
     }
 
     const result = JSON.parse(redisRes[1]);
+
+    console.log(result);
 
     return res.status(200).json({
         orderId: dbOrder.id,
@@ -438,6 +440,24 @@ app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => 
     return res.status(200).json({ stocks });
 });
 
+app.get("/candles/:symbol/:interval", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+const symbol = req.params.symbol as string;
+const interval = req.params.interval as string;
+    const candles = await prisma.candle.findMany({
+        where: { symbol, interval },
+        orderBy: { startTime: "desc" },
+        take: 200,
+    });
+
+    const current = CANDLES[`${symbol}:${interval}`];
+
+    return res.json({
+        candles: [...candles].reverse(),
+        current: current ?? null
+    });
+});
+
 async function bootstrap() {
     const balances = await prisma.balance.findMany({ include: { stock: true } });
     for (const balance of balances) {
@@ -450,7 +470,7 @@ async function bootstrap() {
         };
     }
     initWS(8080);
-    runWorker().catch((err: Error) => console.error("Worker crashed:", err));
+    runWorker().catch(err => console.error("Worker crashed:", err));
     app.listen(PORT, () => console.log("CEX running on :3000"));
 }
 
