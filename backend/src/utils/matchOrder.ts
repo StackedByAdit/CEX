@@ -1,26 +1,48 @@
-import { prisma } from "../prisma";
 import { ORDERBOOK } from "../state";
 import type { MemoryOrder } from "../types/order";
-import { assureBalance } from "./assureBalance";
+import { getBalance } from "./assureBalance";
 import { roundInr, roundQty } from "./marketOrder";
+import { prisma } from "../prisma";
+
+export interface MatchFillRecord {
+    buyOrderId: string;
+    sellOrderId: string;
+    price: number;
+    quantity: number;
+}
 
 export interface MatchResult {
     status: MemoryOrder["status"];
     filledQuantity: number;
     fills: { price: number; quantity: number }[];
+    fillRecords: MatchFillRecord[];
+    counterPartyOrders: MemoryOrder[];
     counterPartyUserIds: string[];
     actualQuote: number;
     refundQuote: number;
 }
 
-export async function matchOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
+function trackCounterParty(
+    counterPartyOrders: Map<string, MemoryOrder>,
+    counterPartyUserIds: string[],
+    order: MemoryOrder,
+) {
+    counterPartyOrders.set(order.id, order);
+    counterPartyUserIds.push(order.userId);
+}
+
+export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
     const counterPartyUserIds: string[] = [];
+    const counterPartyOrders = new Map<string, MemoryOrder>();
+    const fillRecords: MatchFillRecord[] = [];
     const firm = ORDERBOOK[order.symbol];
     if (!firm) {
         return {
             status: order.status,
             filledQuantity: order.filledQuantity,
             fills: [],
+            fillRecords: [],
+            counterPartyOrders: [],
             counterPartyUserIds: [],
             actualQuote: 0,
             refundQuote: 0,
@@ -47,17 +69,15 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                     order.quantity - order.filledQuantity,
                     sellOrder.quantity - sellOrder.filledQuantity
                 );
-                counterPartyUserIds.push(sellOrder.userId);
+                trackCounterParty(counterPartyOrders, counterPartyUserIds, sellOrder);
 
                 order.filledQuantity += tradeQty;
                 sellOrder.filledQuantity += tradeQty;
 
-                const [sellerStock, sellerInr, buyerStock, buyerInr] = await Promise.all([
-                    assureBalance(sellOrder.userId, order.symbol),
-                    assureBalance(sellOrder.userId, "INR"),
-                    assureBalance(order.userId, order.symbol),
-                    assureBalance(order.userId, "INR"),
-                ]);
+                const sellerStock = getBalance(sellOrder.userId, order.symbol);
+                const sellerInr = getBalance(sellOrder.userId, "INR");
+                const buyerStock = getBalance(order.userId, order.symbol);
+                const buyerInr = getBalance(order.userId, "INR");
 
                 buyerInr.locked -= tradeQty * price;
                 buyerStock.available += tradeQty;
@@ -65,9 +85,6 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                 sellerInr.available += tradeQty * price;
 
                 Promise.all([
-                    prisma.fill.create({
-                        data: { stockId, buyOrderId: order.id, sellOrderId: sellOrder.id, price, quantity: tradeQty },
-                    }),
                     prisma.balance.update({
                         where: { id: buyerInr.balanceId },
                         data: { locked: { decrement: tradeQty * price } },
@@ -84,15 +101,14 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                         where: { id: sellerInr.balanceId },
                         data: { available: { increment: tradeQty * price } },
                     }),
-                    prisma.order.update({
-                        where: { id: sellOrder.id },
-                        data: {
-                            filledQuantity: sellOrder.filledQuantity,
-                            status: sellOrder.filledQuantity === sellOrder.quantity ? "FILLED" : "PARTIALLY_FILLED",
-                        },
-                    }),
-                ]).catch(err => console.error("DB sync error (buy match):", err));
+                ]).catch(err => console.error("DB sync error (buy match balances):", err));
 
+                fillRecords.push({
+                    buyOrderId: order.id,
+                    sellOrderId: sellOrder.id,
+                    price,
+                    quantity: tradeQty,
+                });
                 fills.push({ price, quantity: tradeQty });
 
                 if (sellOrder.filledQuantity === sellOrder.quantity) {
@@ -126,17 +142,15 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                     buyOrder.quantity - buyOrder.filledQuantity
                 );
 
-                counterPartyUserIds.push(buyOrder.userId);
+                trackCounterParty(counterPartyOrders, counterPartyUserIds, buyOrder);
 
                 order.filledQuantity += tradeQty;
                 buyOrder.filledQuantity += tradeQty;
 
-                const [buyerStock, buyerInr, sellerStock, sellerInr] = await Promise.all([
-                    assureBalance(buyOrder.userId, order.symbol),
-                    assureBalance(buyOrder.userId, "INR"),
-                    assureBalance(order.userId, order.symbol),
-                    assureBalance(order.userId, "INR"),
-                ]);
+                const buyerStock = getBalance(buyOrder.userId, order.symbol);
+                const buyerInr = getBalance(buyOrder.userId, "INR");
+                const sellerStock = getBalance(order.userId, order.symbol);
+                const sellerInr = getBalance(order.userId, "INR");
 
                 buyerInr.locked -= tradeQty * price;
                 buyerStock.available += tradeQty;
@@ -144,9 +158,6 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                 sellerInr.available += tradeQty * price;
 
                 Promise.all([
-                    prisma.fill.create({
-                        data: { stockId, buyOrderId: buyOrder.id, sellOrderId: order.id, price, quantity: tradeQty },
-                    }),
                     prisma.balance.update({
                         where: { id: buyerInr.balanceId },
                         data: { locked: { decrement: tradeQty * price } },
@@ -163,15 +174,14 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
                         where: { id: sellerInr.balanceId },
                         data: { available: { increment: tradeQty * price } },
                     }),
-                    prisma.order.update({
-                        where: { id: buyOrder.id },
-                        data: {
-                            filledQuantity: buyOrder.filledQuantity,
-                            status: buyOrder.filledQuantity === buyOrder.quantity ? "FILLED" : "PARTIALLY_FILLED",
-                        },
-                    }),
-                ]).catch(err => console.error("DB sync error (sell match):", err));
+                ]).catch(err => console.error("DB sync error (sell match balances):", err));
 
+                fillRecords.push({
+                    buyOrderId: buyOrder.id,
+                    sellOrderId: order.id,
+                    price,
+                    quantity: tradeQty,
+                });
                 fills.push({ price, quantity: tradeQty });
 
                 if (buyOrder.filledQuantity === buyOrder.quantity) {
@@ -206,7 +216,7 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
             refundQuote = roundInr(Math.max(0, locked - actualQuote));
 
             if (refundQuote > 0) {
-                const buyerInr = await assureBalance(order.userId, "INR");
+                const buyerInr = getBalance(order.userId, "INR");
                 buyerInr.locked -= refundQuote;
                 buyerInr.available += refundQuote;
 
@@ -223,7 +233,7 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
         } else {
             const unfilledQty = roundQty(order.quantity - order.filledQuantity);
             if (unfilledQty > 0) {
-                const sellerStock = await assureBalance(order.userId, order.symbol);
+                const sellerStock = getBalance(order.userId, order.symbol);
                 sellerStock.locked -= unfilledQty;
                 sellerStock.available += unfilledQty;
 
@@ -239,10 +249,8 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
     }
 
     if (order.type === "MARKET") {
-        if (order.filledQuantity === order.quantity) {
+        if (order.filledQuantity > 0) {
             order.status = "FILLED";
-        } else if (order.filledQuantity > 0) {
-            order.status = "PARTIALLY_FILLED";
         } else {
             order.status = "CANCELLED";
         }
@@ -254,10 +262,12 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
         order.status = "PENDING";
     }
 
-return {
+    return {
         status: order.status,
         filledQuantity: order.filledQuantity,
         fills,
+        fillRecords,
+        counterPartyOrders: Array.from(counterPartyOrders.values()),
         counterPartyUserIds,
         actualQuote,
         refundQuote,

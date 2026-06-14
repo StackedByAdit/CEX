@@ -8,6 +8,5 @@ export type MemoryOrder = {
     quantity : number,
     filledQuantity : number,
     status : "PENDING" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED",
-    /** Total INR reserved up front for market buys. */
     lockedQuoteAmount? : number,
 }

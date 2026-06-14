@@ -97,7 +97,7 @@ describe("matchOrder market refunds", () => {
             lockedQuoteAmount: roundInr(estimate.estimatedQuote + 50),
         });
 
-        const result = await matchOrder(order, "stock-id");
+        const result = matchOrder(order, "stock-id");
 
         expect(result.status).toBe("FILLED");
         expect(result.actualQuote).toBe(roundInr(100 * 2));
@@ -131,9 +131,9 @@ describe("matchOrder market refunds", () => {
             quantity: 7,
         });
 
-        const result = await matchOrder(order, "stock-id");
+        const result = matchOrder(order, "stock-id");
 
-        expect(result.status).toBe("PARTIALLY_FILLED");
+        expect(result.status).toBe("FILLED");
         expect(result.filledQuantity).toBe(6);
         expect(BALANCES.seller!.SOL!.locked).toBe(0);
         expect(BALANCES.seller!.SOL!.available).toBe(1);

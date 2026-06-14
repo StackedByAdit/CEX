@@ -1,21 +1,38 @@
 import { redisClient, publisher, workerClient } from "./redis";
 import { matchOrder, type MatchResult } from "./utils/matchOrder";
-import { ORDERS, ORDERBOOK, BALANCES } from "./state";
+import { ORDERS, BALANCES } from "./state";
 import { prisma } from "./prisma";
 import type { MemoryOrder } from "./types/order";
 import { processTrade } from "./utils/candle";
+import { upsertOrder } from "./utils/orderSync";
+import { publishBalance, publishOrderbook } from "./utils/publish";
+
+async function persistMatchResult(order: MemoryOrder, stockId: string, result: MatchResult) {
+    for (const counterParty of result.counterPartyOrders) {
+        await upsertOrder(counterParty, stockId);
+    }
+
+    await upsertOrder(order, stockId);
+
+    for (const fill of result.fillRecords) {
+        await prisma.fill.create({
+            data: {
+                stockId,
+                buyOrderId: fill.buyOrderId,
+                sellOrderId: fill.sellOrderId,
+                price: fill.price,
+                quantity: fill.quantity,
+            },
+        });
+    }
+}
 
 function postProcessOrder(order: MemoryOrder, stockId: string, result: MatchResult) {
-    prisma.order.update({
-        where: { id: order.id },
-        data: { filledQuantity: result.filledQuantity, status: result.status },
-    }).catch(err => console.error("DB sync error (order update):", err));
+    void persistMatchResult(order, stockId, result).catch(err => {
+        console.error("DB sync error (persist match):", err);
+    });
 
-    void publisher.publish(`orderbook:${order.symbol}`, JSON.stringify({
-        symbol: order.symbol,
-        bids: ORDERBOOK[order.symbol]!.bids,
-        asks: ORDERBOOK[order.symbol]!.asks,
-    })).catch(err => console.error("Orderbook publish error:", err));
+    publishOrderbook(order.symbol);
 
     for (const fill of result.fills) {
         void publisher.publish(`trades:${order.symbol}`, JSON.stringify({
@@ -34,24 +51,21 @@ function postProcessOrder(order: MemoryOrder, stockId: string, result: MatchResu
         const affectedUserIds = new Set<string>([order.userId, ...result.counterPartyUserIds]);
         for (const userId of affectedUserIds) {
             if (!BALANCES[userId]) continue;
-            void publisher.publish("balance:update", JSON.stringify({
-                userId,
-                balances: BALANCES[userId],
-            })).catch(err => console.error("Balance publish error:", err));
+            publishBalance(userId);
         }
     }
 }
 
 /** Match in-process and return immediately; persistence and WS fan-out run in the background. */
-export async function executeOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
+export function executeOrder(order: MemoryOrder, stockId: string): MatchResult {
     ORDERS.push(order);
-    const result = await matchOrder(order, stockId);
-    void postProcessOrder(order, stockId, result);
+    const result = matchOrder(order, stockId);
+    postProcessOrder(order, stockId, result);
     return result;
 }
 
 async function processOrder(order: MemoryOrder, stockId: string) {
-    const result = await executeOrder(order, stockId);
+    const result = executeOrder(order, stockId);
     await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
     console.log("Result pushed for:", order.id);
 }

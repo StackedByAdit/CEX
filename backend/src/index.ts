@@ -16,8 +16,11 @@ import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
 import { ORDERS, ORDERBOOK, BALANCES, CANDLES, STOCK_BY_SYMBOL } from "./state";
-import { advanceCandlesIfNeeded } from "./utils/candle";
+import { advanceCandlesIfNeeded, getCandleSnapshot } from "./utils/candle";
 import { estimateMarketBuy, estimateMarketSell, roundInr, roundQty } from "./utils/marketOrder";
+import { restoreOpenOrders } from "./utils/orderSync";
+import { publishBalance, publishOrderbook } from "./utils/publish";
+import { getTickerStats } from "./utils/ticker";
 import { executeOrder, runWorker } from "./worker";
 const PORT = 3000;
 
@@ -171,10 +174,15 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
     const stockId = stock.id;
 
-    const [inrBalance, stockBalance] = await Promise.all([
-        assureBalance(userId, "INR"),
-        assureBalance(userId, symbol),
-    ]);
+    if (!BALANCES[userId]?.INR || !BALANCES[userId]?.[symbol]) {
+        await Promise.all([
+            assureBalance(userId, "INR"),
+            assureBalance(userId, symbol),
+        ]);
+    }
+
+    const inrBalance = BALANCES[userId]!.INR!;
+    const stockBalance = BALANCES[userId]![symbol]!;
 
     let lockedQuoteAmount: number | undefined;
 
@@ -250,21 +258,10 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         }).catch(err => console.error("DB sync error (sell lock):", err));
     }
 
-    const dbOrder = await prisma.order.create({
-        data: {
-            userId,
-            stockId,
-            side,
-            type,
-            status: "PENDING",
-            price: type === "LIMIT" ? price : null,
-            quantity: orderQuantity,
-            filledQuantity: 0
-        }
-    });
+    const orderId = crypto.randomUUID();
 
     const currOrder: MemoryOrder = {
-        id: dbOrder.id,
+        id: orderId,
         userId,
         side,
         symbol,
@@ -276,10 +273,10 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         lockedQuoteAmount,
     };
 
-    const result = await executeOrder(currOrder, stockId);
+    const result = executeOrder(currOrder, stockId);
 
     return res.status(200).json({
-        orderId: dbOrder.id,
+        orderId,
         status: result.status,
         filledQuantity: result.filledQuantity,
         remainingQuantity: roundQty(orderQuantity - result.filledQuantity),
@@ -294,10 +291,51 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 
     const orderId = req.params.orderId as string;
 
-    const order = ORDERS.find(order => order.id === orderId);
+    let order = ORDERS.find(entry => entry.id === orderId);
 
     if (!order) {
-        return res.status(404).json({ message: "Order not found" });
+        const dbOrder = await prisma.order.findUnique({
+            where: { id: orderId },
+            include: { stock: true },
+        });
+
+        if (!dbOrder) {
+            return res.status(404).json({ message: "Order not found" });
+        }
+
+        if (dbOrder.userId !== req.id) {
+            return res.status(403).json({ message: "Not your order" });
+        }
+
+        if (
+            dbOrder.type !== "LIMIT" ||
+            dbOrder.price == null ||
+            (dbOrder.status !== "PENDING" && dbOrder.status !== "PARTIALLY_FILLED")
+        ) {
+            return res.status(400).json({ message: "Order cannot be cancelled" });
+        }
+
+        order = {
+            id: dbOrder.id,
+            userId: dbOrder.userId,
+            side: dbOrder.side,
+            type: dbOrder.type,
+            symbol: dbOrder.stock.symbol,
+            price: dbOrder.price.toNumber(),
+            quantity: dbOrder.quantity.toNumber(),
+            filledQuantity: dbOrder.filledQuantity.toNumber(),
+            status: dbOrder.status,
+        };
+
+        ORDERS.push(order);
+
+        const firm = ORDERBOOK[order.symbol] ?? { bids: {}, asks: {} };
+        ORDERBOOK[order.symbol] = firm;
+        const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
+        if (!bookSide[order.price]) bookSide[order.price] = [];
+        if (!bookSide[order.price]!.some((entry) => entry.id === order.id)) {
+            bookSide[order.price]!.push(order);
+        }
     }
 
     if (order.userId !== req.id) {
@@ -308,34 +346,47 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
         return res.status(400).json({ message: "Order cannot be cancelled" });
     }
 
-    const aboutOrder = order.side === "BUY" ? ORDERBOOK[order.symbol]!.bids : ORDERBOOK[order.symbol]!.asks;
+    if (order.type !== "LIMIT" || order.price == null) {
+        return res.status(400).json({ message: "Only open limit orders can be cancelled" });
+    }
 
-    const ordersAtPrice = aboutOrder[order.price!];
+    const firm = ORDERBOOK[order.symbol];
+    if (!firm) {
+        return res.status(404).json({ message: "Symbol not found" });
+    }
+
+    const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
+    const ordersAtPrice = bookSide[order.price];
 
     if (!ordersAtPrice) {
         return res.status(404).json({ message: "Order not found in orderbook" });
     }
 
-    const index = ordersAtPrice.findIndex(order => order.id === orderId);
+    const index = ordersAtPrice.findIndex(entry => entry.id === orderId);
 
     if (index === -1) {
         return res.status(404).json({ message: "Order not found in orderbook" });
-    } else {
-        ordersAtPrice.splice(index, 1);
-        if (ordersAtPrice.length === 0) {
-            delete aboutOrder[order.price!];
-        }
+    }
+
+    ordersAtPrice.splice(index, 1);
+    if (ordersAtPrice.length === 0) {
+        delete bookSide[order.price];
     }
 
     order.status = "CANCELLED";
 
-    prisma.order.update({
-        where: { id: orderId },
-        data: { status: "CANCELLED" },
-    }).catch(err => console.error("DB sync error (cancel order):", err));
+    try {
+        await prisma.order.update({
+            where: { id: orderId },
+            data: { status: "CANCELLED" },
+        });
+    } catch (err) {
+        console.error("DB sync error (cancel order):", err);
+        return res.status(500).json({ message: "Failed to cancel order" });
+    }
 
-    const price = order.price!;
-    const quantity = order.quantity - order.filledQuantity;
+    const price = order.price;
+    const quantity = roundQty(order.quantity - order.filledQuantity);
 
     if (order.side === "BUY") {
         const inrBalance = await assureBalance(order.userId, "INR");
@@ -365,6 +416,9 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             }
         }).catch(err => console.error("DB sync error (cancel sell refund):", err));
     }
+
+    publishOrderbook(order.symbol);
+    publishBalance(order.userId);
 
     return res.status(200).json({ message: "Order cancelled" });
 });
@@ -439,11 +493,8 @@ app.get("/trades/:symbol", authMiddleware, async (req: CustomRequest, res: Respo
 });
 
 app.get("/ticker/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
-    const lastFill = await prisma.fill.findFirst({
-        where: { stock: { symbol: req.params.symbol as string } },
-        orderBy: { createdAt: "desc" }
-    });
-    return res.json({ price: lastFill?.price ?? null });
+    const stats = await getTickerStats(req.params.symbol as string);
+    return res.json(stats);
 });
 
 app.get("/fills/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
@@ -466,23 +517,12 @@ app.get("/stocks", authMiddleware, async (req: CustomRequest, res: Response) => 
 
 app.get("/candles/:symbol/:interval", authMiddleware, async (req: CustomRequest, res: Response) => {
 
-const symbol = req.params.symbol as string;
-const interval = req.params.interval as string;
+    const symbol = req.params.symbol as string;
+    const interval = req.params.interval as string;
 
-    await advanceCandlesIfNeeded();
+    const snapshot = await getCandleSnapshot(symbol, interval as import("./utils/candle").Interval);
 
-    const candles = await prisma.candle.findMany({
-        where: { symbol, interval },
-        orderBy: { startTime: "desc" },
-        take: 200,
-    });
-
-    const current = CANDLES[`${symbol}:${interval}`];
-
-    return res.json({
-        candles: [...candles].reverse(),
-        current: current ?? null
-    });
+    return res.json(snapshot);
 });
 
 async function bootstrap() {
@@ -501,6 +541,8 @@ async function bootstrap() {
             balanceId: balance.id
         };
     }
+
+    await restoreOpenOrders();
     initWS(8080);
     runWorker().catch(err => console.error("Worker crashed:", err));
 

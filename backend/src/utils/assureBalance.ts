@@ -1,6 +1,15 @@
 import { prisma } from "../prisma";
 import { BALANCES, STOCK_BY_SYMBOL } from "../state";
 
+/** Hot-path balance access — throws if not already in memory (bootstrap / prior orders). */
+export function getBalance(userId: string, symbol: string) {
+    const balance = BALANCES[userId]?.[symbol];
+    if (!balance) {
+        throw new Error(`Balance cache miss: ${userId}/${symbol}`);
+    }
+    return balance;
+}
+
 export async function assureBalance(userId: string, symbol: string) {
     if (!BALANCES[userId]) BALANCES[userId] = {};
 
