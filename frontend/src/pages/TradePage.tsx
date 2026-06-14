@@ -18,6 +18,7 @@ import {
   fetchTrades,
 } from "../lib/api";
 import { orbitWs } from "../lib/ws";
+import { appendCandleIfMissing, startTimeToMs } from "../lib/candles";
 import { toPrice } from "../lib/format";
 import type {
   Balance,
@@ -128,6 +129,9 @@ export default function TradePage() {
   }, []);
 
   useEffect(() => {
+    setCandles([]);
+    setCurrentCandle(null);
+
     loadOrderbook(symbol);
     loadCandles(symbol, candleInterval);
     refreshOrders();
@@ -183,7 +187,7 @@ export default function TradePage() {
         msg.symbol === symbol &&
         msg.interval === candleInterval
       ) {
-        setCurrentCandle({
+        const nextCandle: Candle = {
           symbol: msg.symbol,
           interval: msg.interval,
           open: msg.open,
@@ -192,6 +196,17 @@ export default function TradePage() {
           close: msg.close,
           volume: msg.volume,
           startTime: msg.startTime,
+        };
+
+        setCurrentCandle((prev) => {
+          if (
+            prev &&
+            msg.type === "CANDLE_UPDATE" &&
+            startTimeToMs(prev.startTime) !== startTimeToMs(nextCandle.startTime)
+          ) {
+            setCandles((existing) => appendCandleIfMissing(existing, prev));
+          }
+          return nextCandle;
         });
       }
 
