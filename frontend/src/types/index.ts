@@ -71,12 +71,19 @@ export interface PlaceOrderResponse {
   status: OrderStatus;
   filledQuantity: number;
   remainingQuantity: number;
-  fills: unknown[];
+  fills: { price: number; quantity: number }[];
+  actualQuote?: number;
+  refundQuote?: number;
+  estimatedQuote?: number;
 }
 
 export type WsMessage =
-  | { type: "ORDERBOOK_SNAPSHOT"; symbol: string; bids: Record<string, MemoryOrder[]>; asks: Record<string, MemoryOrder[]> }
-  | { type: "ORDERBOOK_UPDATE"; symbol: string; side: "bid" | "ask"; price: number; action: "add" | "remove" | "update"; quantity?: number }
+  | {
+      type: "ORDERBOOK_SNAPSHOT" | "ORDERBOOK_UPDATE";
+      symbol: string;
+      bids: Record<string, MemoryOrder[]>;
+      asks: Record<string, MemoryOrder[]>;
+    }
   | { type: "TRADE"; symbol: string; price: number; quantity: number; timestamp: number }
   | { type: "BALANCE_SNAPSHOT"; balances: Record<string, Balance> }
   | { type: "BALANCE_UPDATE"; balances: Record<string, Balance> }
@@ -94,4 +101,5 @@ export interface MemoryOrder {
   quantity: number;
   filledQuantity: number;
   status: OrderStatus;
+  lockedQuoteAmount?: number;
 }

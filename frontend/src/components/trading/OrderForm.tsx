@@ -1,12 +1,18 @@
 import { useMemo, useState } from "react";
-import type { Balance, OrderSide, OrderType } from "../../types";
+import type { Balance, OrderSide, OrderType, OrderbookLevel } from "../../types";
 import { ApiError, placeOrder } from "../../lib/api";
+import {
+  estimateMarketBuyFromAsks,
+  estimateMarketSellFromBids,
+} from "../../lib/marketOrder";
 import { toPrice } from "../../lib/format";
 
 interface OrderFormProps {
   symbol: string;
   lastPrice: number | null;
   balances: Record<string, Balance>;
+  asks: OrderbookLevel[];
+  bids: OrderbookLevel[];
   onOrderPlaced: () => void;
 }
 
@@ -16,6 +22,8 @@ export default function OrderForm({
   symbol,
   lastPrice,
   balances,
+  asks,
+  bids,
   onOrderPlaced,
 }: OrderFormProps) {
   const [side, setSide] = useState<OrderSide>("BUY");
@@ -29,20 +37,45 @@ export default function OrderForm({
   const inrAvailable = balances.INR?.available ?? 0;
   const stockAvailable = balances[symbol]?.available ?? 0;
 
+  const parsedQty = parseFloat(quantity) || 0;
+
+  const marketEstimate = useMemo(() => {
+    if (orderType !== "MARKET" || parsedQty <= 0) return null;
+    return side === "BUY"
+      ? estimateMarketBuyFromAsks(asks, parsedQty)
+      : estimateMarketSellFromBids(bids, parsedQty);
+  }, [orderType, parsedQty, side, asks, bids]);
+
   const total = useMemo(() => {
+    if (orderType === "MARKET") {
+      return marketEstimate?.estimatedQuote ?? 0;
+    }
     const p = parseFloat(price) || 0;
-    const q = parseFloat(quantity) || 0;
-    return p * q;
-  }, [price, quantity]);
+    return p * parsedQty;
+  }, [orderType, marketEstimate, price, parsedQty]);
 
   function applyPercentage(pct: number) {
     if (side === "BUY") {
+      if (orderType === "MARKET") {
+        if (!marketEstimate || marketEstimate.averagePrice <= 0) return;
+        const maxQty = Math.min(
+          marketEstimate.fillableQuantity,
+          inrAvailable / marketEstimate.averagePrice,
+        );
+        setQuantity(((maxQty * pct) / 100).toFixed(4));
+        return;
+      }
+
       const p = parseFloat(price) || toPrice(lastPrice) || 0;
       if (p <= 0) return;
       const maxQty = inrAvailable / p;
       setQuantity(((maxQty * pct) / 100).toFixed(4));
     } else {
-      setQuantity(((stockAvailable * pct) / 100).toFixed(4));
+      const maxQty =
+        orderType === "MARKET" && marketEstimate
+          ? Math.min(stockAvailable, marketEstimate.fillableQuantity)
+          : stockAvailable;
+      setQuantity(((maxQty * pct) / 100).toFixed(4));
     }
   }
 
@@ -52,7 +85,7 @@ export default function OrderForm({
     setSuccess("");
     setLoading(true);
 
-    const qty = parseFloat(quantity);
+    const qty = parsedQty;
     const pr = parseFloat(price);
 
     if (!qty || qty <= 0) {
@@ -67,6 +100,26 @@ export default function OrderForm({
       return;
     }
 
+    if (orderType === "MARKET") {
+      if (!marketEstimate || marketEstimate.fillableQuantity <= 0) {
+        setError("Not enough liquidity for a market order");
+        setLoading(false);
+        return;
+      }
+
+      if (side === "BUY" && marketEstimate.estimatedQuote > inrAvailable) {
+        setError("Insufficient INR for estimated market cost");
+        setLoading(false);
+        return;
+      }
+
+      if (side === "SELL" && qty > stockAvailable) {
+        setError(`Insufficient ${symbol}`);
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const result = await placeOrder({
         side,
@@ -76,7 +129,14 @@ export default function OrderForm({
         ...(orderType === "LIMIT" ? { price: pr } : {}),
       });
 
-      setSuccess(`Order ${result.status.toLowerCase().replace("_", " ")}`);
+      const refund =
+        result.refundQuote && result.refundQuote > 0
+          ? ` · refunded ${result.refundQuote.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR`
+          : "";
+
+      setSuccess(
+        `Order ${result.status.toLowerCase().replace("_", " ")}${refund}`,
+      );
       setQuantity("");
       onOrderPlaced();
     } catch (err) {
@@ -91,6 +151,13 @@ export default function OrderForm({
     const p = toPrice(lastPrice);
     return p === null ? "0.00" : p.toFixed(2);
   })();
+
+  const showPartialLiquidityWarning =
+    orderType === "MARKET" &&
+    parsedQty > 0 &&
+    marketEstimate &&
+    marketEstimate.fillableQuantity > 0 &&
+    marketEstimate.fillableQuantity < parsedQty;
 
   return (
     <div className="flex h-full flex-col">
@@ -142,6 +209,19 @@ export default function OrderForm({
           />
         )}
 
+        {orderType === "MARKET" && marketEstimate && marketEstimate.averagePrice > 0 && (
+          <div className="mb-3 rounded bg-orbit-elevated px-3 py-2.5 text-xs text-orbit-secondary">
+            Est. avg price{" "}
+            <span className="tabular-nums text-white">
+              {marketEstimate.averagePrice.toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{" "}
+              INR
+            </span>
+          </div>
+        )}
+
         <Field
           label={`Amount (${symbol})`}
           value={quantity}
@@ -149,14 +229,23 @@ export default function OrderForm({
           placeholder="0.0000"
         />
 
-        {orderType === "LIMIT" && (
-          <div className="mb-4">
-            <div className="mb-1 text-[10px] uppercase tracking-wider text-orbit-muted">
-              Total (INR)
-            </div>
-            <div className="rounded bg-orbit-elevated px-3 py-2.5 text-sm tabular-nums text-orbit-secondary">
-              {total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
+        <div className="mb-4">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-orbit-muted">
+            {orderType === "MARKET"
+              ? side === "BUY"
+                ? "Est. cost (INR)"
+                : "Est. proceeds (INR)"
+              : "Total (INR)"}
+          </div>
+          <div className="rounded bg-orbit-elevated px-3 py-2.5 text-sm tabular-nums text-orbit-secondary">
+            {total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+        </div>
+
+        {showPartialLiquidityWarning && (
+          <div className="mb-3 rounded border border-orbit-border px-3 py-2 text-xs text-orbit-secondary">
+            Only {marketEstimate!.fillableQuantity.toLocaleString("en-IN", { maximumFractionDigits: 4 })}{" "}
+            {symbol} available at market. Unfilled size is cancelled after execution.
           </div>
         )}
 
@@ -200,14 +289,12 @@ export default function OrderForm({
 
           <button
             type="submit"
-            disabled={loading || orderType === "MARKET"}
+            disabled={loading}
             className="w-full rounded bg-white py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loading
               ? "Placing..."
-              : orderType === "MARKET"
-                ? "Market orders unavailable"
-                : `Place ${side === "BUY" ? "Buy" : "Sell"} Order`}
+              : `Place ${side === "BUY" ? "Buy" : "Sell"} ${orderType === "MARKET" ? "Market" : ""} Order`.trim()}
           </button>
         </div>
       </form>
