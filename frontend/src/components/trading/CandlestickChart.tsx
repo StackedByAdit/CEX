@@ -17,6 +17,7 @@ import {
 } from "lightweight-charts";
 import type { Candle, CandleInterval } from "../../types";
 import { CANDLE_INTERVALS } from "../../types";
+import { startTimeToMs } from "../../lib/candles";
 
 interface CandlestickChartProps {
   candles: Candle[];
@@ -63,8 +64,7 @@ const THEME = {
 } as const;
 
 function toChartTime(startTime: number | string): Time {
-  const ms = typeof startTime === "string" ? new Date(startTime).getTime() : startTime;
-  return Math.floor(ms / 1000) as Time;
+  return Math.floor(startTimeToMs(startTime) / 1000) as Time;
 }
 
 function toMs(time: Time): number {
@@ -103,34 +103,35 @@ function formatCandleTime(ms: number, interval: CandleInterval): string {
 }
 
 function mergeBars(candles: Candle[], current: Candle | null): MergedBar[] {
-  const bars: MergedBar[] = candles.map((c) => ({
-    time: toChartTime(c.startTime),
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    volume: c.volume,
-  }));
+  const byTime = new Map<number, MergedBar>();
 
-  if (!current) return bars;
-
-  const currentBar: MergedBar = {
-    time: toChartTime(current.startTime),
-    open: current.open,
-    high: current.high,
-    low: current.low,
-    close: current.close,
-    volume: current.volume,
-  };
-
-  const last = bars[bars.length - 1];
-  if (last && last.time === currentBar.time) {
-    bars[bars.length - 1] = currentBar;
-  } else {
-    bars.push(currentBar);
+  for (const c of candles) {
+    const time = toChartTime(c.startTime) as number;
+    byTime.set(time, {
+      time: time as Time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+    });
   }
 
-  return bars;
+  if (current) {
+    const time = toChartTime(current.startTime) as number;
+    byTime.set(time, {
+      time: time as Time,
+      open: current.open,
+      high: current.high,
+      low: current.low,
+      close: current.close,
+      volume: current.volume,
+    });
+  }
+
+  return Array.from(byTime.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, bar]) => bar);
 }
 
 function toCandlePoint(bar: MergedBar): CandlestickData<Time> {
