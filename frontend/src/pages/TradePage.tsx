@@ -18,7 +18,15 @@ import {
   fetchTrades,
 } from "../lib/api";
 import { orbitWs } from "../lib/ws";
-import { appendCandleIfMissing, startTimeToMs } from "../lib/candles";
+import {
+  applyLiveCandleUpdate,
+  candleSeriesKey,
+  CandleSeriesCache,
+  normalizeCandleFetchResponse,
+  startTimeToMs,
+  type CandleSeriesSnapshot,
+} from "../lib/candles";
+import { levelsFromWsBook } from "../lib/orderbook";
 import { toPrice } from "../lib/format";
 import type {
   Balance,
@@ -65,7 +73,59 @@ export default function TradePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Fill[]>([]);
   const tradeRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const orderbookRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const candleCacheRef = useRef(new CandleSeriesCache());
+  const activeCandleKeyRef = useRef(candleSeriesKey(symbol, candleInterval));
+  const candleFetchGenRef = useRef(0);
+
+  const publishCandleSnapshot = useCallback((key: string, snapshot: CandleSeriesSnapshot) => {
+    candleCacheRef.current.set(key, snapshot);
+    if (activeCandleKeyRef.current === key) {
+      setCandles(snapshot.candles);
+      setCurrentCandle(snapshot.current);
+    }
+  }, []);
+
+  const applyCandleView = useCallback((sym: string, int: CandleInterval) => {
+    const key = candleSeriesKey(sym, int);
+    activeCandleKeyRef.current = key;
+    const cached = candleCacheRef.current.get(key);
+    setCandles(cached?.candles ?? []);
+    setCurrentCandle(cached?.current ?? null);
+  }, []);
+
+  const handleIntervalChange = useCallback(
+    (int: CandleInterval) => {
+      applyCandleView(symbol, int);
+      setCandleInterval(int);
+    },
+    [applyCandleView, symbol],
+  );
+
+  const handleSymbolChange = useCallback(
+    (sym: string) => {
+      applyCandleView(sym, candleInterval);
+      setSymbol(sym);
+    },
+    [applyCandleView, candleInterval],
+  );
+
+  const mergeFetchedWithCache = useCallback(
+    (key: string, candles: Candle[], current: Candle | null): CandleSeriesSnapshot => {
+      const fetched = normalizeCandleFetchResponse(candles, current);
+      const cached = candleCacheRef.current.get(key);
+
+      if (
+        cached?.current &&
+        fetched.current &&
+        startTimeToMs(cached.current.startTime) === startTimeToMs(fetched.current.startTime)
+      ) {
+        return { candles: fetched.candles, current: cached.current };
+      }
+
+      return fetched;
+    },
+    [],
+  );
 
   const loadOrderbook = useCallback(async (sym: string) => {
     try {
@@ -77,15 +137,23 @@ export default function TradePage() {
     }
   }, []);
 
-  const loadCandles = useCallback(async (sym: string, int: CandleInterval) => {
-    try {
-      const data = await fetchCandles(sym, int);
-      setCandles(data.candles);
-      setCurrentCandle(data.current);
-    } catch {
-      /* keep existing candles on transient errors */
-    }
-  }, []);
+  const loadCandles = useCallback(
+    async (sym: string, int: CandleInterval) => {
+      const key = candleSeriesKey(sym, int);
+      const gen = ++candleFetchGenRef.current;
+
+      try {
+        const data = await fetchCandles(sym, int);
+        if (gen !== candleFetchGenRef.current || activeCandleKeyRef.current !== key) return;
+
+        const snapshot = mergeFetchedWithCache(key, data.candles, data.current);
+        publishCandleSnapshot(key, snapshot);
+      } catch {
+        /* keep cached candles on transient errors */
+      }
+    },
+    [mergeFetchedWithCache, publishCandleSnapshot],
+  );
 
   const refreshOrders = useCallback(async () => {
     try {
@@ -129,8 +197,7 @@ export default function TradePage() {
   }, []);
 
   useEffect(() => {
-    setCandles([]);
-    setCurrentCandle(null);
+    applyCandleView(symbol, candleInterval);
 
     loadOrderbook(symbol);
     loadCandles(symbol, candleInterval);
@@ -157,6 +224,7 @@ export default function TradePage() {
     refreshOrders,
     refreshTrades,
     refreshBalances,
+    applyCandleView,
   ]);
 
   useEffect(() => {
@@ -167,29 +235,23 @@ export default function TradePage() {
         if (tradeRefreshTimer.current) clearTimeout(tradeRefreshTimer.current);
         tradeRefreshTimer.current = setTimeout(() => {
           refreshTrades(symbol);
-        }, 400);
-
-        if (orderbookRefreshTimer.current) clearTimeout(orderbookRefreshTimer.current);
-        orderbookRefreshTimer.current = setTimeout(() => {
-          loadOrderbook(symbol);
-        }, 400);
-      }
-
-      if (msg.type === "ORDERBOOK_UPDATE" && msg.symbol === symbol) {
-        if (orderbookRefreshTimer.current) clearTimeout(orderbookRefreshTimer.current);
-        orderbookRefreshTimer.current = setTimeout(() => {
-          loadOrderbook(symbol);
-        }, 400);
+        }, 100);
       }
 
       if (
-        (msg.type === "CANDLE_UPDATE" || msg.type === "CANDLE_SNAPSHOT") &&
-        msg.symbol === symbol &&
-        msg.interval === candleInterval
+        (msg.type === "ORDERBOOK_SNAPSHOT" || msg.type === "ORDERBOOK_UPDATE") &&
+        msg.symbol === symbol
       ) {
+        const { bids, asks } = levelsFromWsBook(msg.bids, msg.asks);
+        setBids(bids);
+        setAsks(asks);
+      }
+
+      if (msg.type === "CANDLE_UPDATE" || msg.type === "CANDLE_SNAPSHOT") {
+        const key = candleSeriesKey(msg.symbol, msg.interval);
         const nextCandle: Candle = {
           symbol: msg.symbol,
-          interval: msg.interval,
+          interval: msg.interval as CandleInterval,
           open: msg.open,
           high: msg.high,
           low: msg.low,
@@ -198,16 +260,19 @@ export default function TradePage() {
           startTime: msg.startTime,
         };
 
-        setCurrentCandle((prev) => {
-          if (
-            prev &&
+        const snapshot = candleCacheRef.current.update(key, (prev) => {
+          const rollForward =
             msg.type === "CANDLE_UPDATE" &&
-            startTimeToMs(prev.startTime) !== startTimeToMs(nextCandle.startTime)
-          ) {
-            setCandles((existing) => appendCandleIfMissing(existing, prev));
-          }
-          return nextCandle;
+            prev.current !== null &&
+            startTimeToMs(prev.current.startTime) !== startTimeToMs(nextCandle.startTime);
+
+          return applyLiveCandleUpdate(prev, nextCandle, rollForward);
         });
+
+        if (activeCandleKeyRef.current === key) {
+          setCandles(snapshot.candles);
+          setCurrentCandle(snapshot.current);
+        }
       }
 
       if (msg.type === "BALANCE_SNAPSHOT" || msg.type === "BALANCE_UPDATE") {
@@ -218,9 +283,8 @@ export default function TradePage() {
     return () => {
       unsub();
       if (tradeRefreshTimer.current) clearTimeout(tradeRefreshTimer.current);
-      if (orderbookRefreshTimer.current) clearTimeout(orderbookRefreshTimer.current);
     };
-  }, [symbol, candleInterval, loadOrderbook, refreshTrades]);
+  }, [symbol, candleInterval, refreshTrades]);
 
   const stats24h = useMemo(() => {
     if (candles.length === 0) {
@@ -241,10 +305,7 @@ export default function TradePage() {
   }, [candles, currentCandle, lastPrice]);
 
   function handleOrderPlaced() {
-    refreshOrders();
-    refreshBalances();
-    loadOrderbook(symbol);
-    orbitWs.requestBalance();
+    void refreshOrders();
   }
 
   return (
@@ -263,7 +324,7 @@ export default function TradePage() {
             high24h={stats24h.high}
             low24h={stats24h.low}
             volume24h={stats24h.volume}
-            onSymbolChange={setSymbol}
+            onSymbolChange={handleSymbolChange}
           />
 
           <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[1fr_auto] xl:grid-cols-[240px_1fr_280px] xl:grid-rows-1">
@@ -278,7 +339,7 @@ export default function TradePage() {
                     candles={candles}
                     current={currentCandle}
                     interval={candleInterval}
-                    onIntervalChange={setCandleInterval}
+                    onIntervalChange={handleIntervalChange}
                     lastPrice={lastPrice}
                     symbol={symbol}
                   />
@@ -295,6 +356,8 @@ export default function TradePage() {
                 symbol={symbol}
                 lastPrice={lastPrice}
                 balances={balances}
+                asks={asks}
+                bids={bids}
                 onOrderPlaced={handleOrderPlaced}
               />
             </div>
@@ -320,6 +383,8 @@ export default function TradePage() {
           symbol={symbol}
           lastPrice={lastPrice}
           balances={balances}
+          asks={asks}
+          bids={bids}
           onOrderPlaced={handleOrderPlaced}
         />
       </div>
