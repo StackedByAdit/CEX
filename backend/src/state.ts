@@ -20,3 +20,5 @@ export const CANDLES: Record<string, {
     volume: number;
     startTime: number;
 }> = {};
+
+export const STOCK_BY_SYMBOL: Record<string, { id: string }> = {};

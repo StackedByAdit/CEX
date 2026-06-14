@@ -1,5 +1,5 @@
 import { prisma } from "../prisma";
-import { BALANCES } from "../state";
+import { BALANCES, STOCK_BY_SYMBOL } from "../state";
 
 export async function assureBalance(userId: string, symbol: string) {
     if (!BALANCES[userId]) BALANCES[userId] = {};
@@ -28,17 +28,16 @@ export async function assureBalance(userId: string, symbol: string) {
         return BALANCES[userId]![symbol]!;
     }
 
-    const stock = await prisma.stock.findUnique({ where: { symbol } });
-
-    if (!stock) throw new Error(`Stock not found: ${symbol}`);
+    const stockMeta = STOCK_BY_SYMBOL[symbol];
+    if (!stockMeta) throw new Error(`Stock not found: ${symbol}`);
 
     let balance = await prisma.balance.findFirst({
-        where: { userId, assetType: "STOCK", stockId: stock.id }
+        where: { userId, assetType: "STOCK", stockId: stockMeta.id }
     });
 
     if (!balance) {
         balance = await prisma.balance.create({
-            data: { userId, stockId: stock.id, assetType: "STOCK", available: 0, locked: 0 }
+            data: { userId, stockId: stockMeta.id, assetType: "STOCK", available: 0, locked: 0 }
         });
     }
 
