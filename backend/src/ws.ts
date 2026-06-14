@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { subscriber } from "./redis";
 import { BALANCES, CANDLES, ORDERBOOK } from "./state";
+import { advanceCandlesIfNeeded } from "./utils/candle";
 import jwt from "jsonwebtoken";
 import { prisma } from "./prisma";
 
@@ -84,10 +85,12 @@ export function initWS(port: number) {
                     if (!candleSubs.has(key)) candleSubs.set(key, new Set());
                     candleSubs.get(key)!.add(ws);
 
-                    const current = CANDLES[key];
-                    if (current) {
-                        ws.send(JSON.stringify({ type: "CANDLE_SNAPSHOT", ...current }));
-                    }
+                    void advanceCandlesIfNeeded().then(() => {
+                        const current = CANDLES[key];
+                        if (current && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: "CANDLE_SNAPSHOT", ...current }));
+                        }
+                    });
                 }
 
                 if (msg.type === "UNSUBSCRIBE_CANDLE") {

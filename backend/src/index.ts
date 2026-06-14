@@ -17,6 +17,7 @@ import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
 import { ORDERS, ORDERBOOK, BALANCES, CANDLES } from "./state";
+import { advanceCandlesIfNeeded } from "./utils/candle";
 import { runWorker } from "./worker";
 const PORT = 3000;
 
@@ -444,6 +445,9 @@ app.get("/candles/:symbol/:interval", authMiddleware, async (req: CustomRequest,
 
 const symbol = req.params.symbol as string;
 const interval = req.params.interval as string;
+
+    await advanceCandlesIfNeeded();
+
     const candles = await prisma.candle.findMany({
         where: { symbol, interval },
         orderBy: { startTime: "desc" },
@@ -471,6 +475,11 @@ async function bootstrap() {
     }
     initWS(8080);
     runWorker().catch(err => console.error("Worker crashed:", err));
+
+    setInterval(() => {
+        advanceCandlesIfNeeded().catch(err => console.error("Candle advance error:", err));
+    }, 5_000);
+
     app.listen(PORT, () => console.log("CEX running on :3000"));
 }
 
