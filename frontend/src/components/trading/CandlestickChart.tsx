@@ -9,7 +9,6 @@ import {
   type CandlestickData,
   type HistogramData,
   type IChartApi,
-  type IPaneApi,
   type IPriceLine,
   type ISeriesApi,
   type MouseEventParams,
@@ -205,7 +204,6 @@ export default function CandlestickChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const volumePaneRef = useRef<IPaneApi<Time> | null>(null);
   const priceLineRef = useRef<IPriceLine | null>(null);
   const mergedBarsRef = useRef<MergedBar[]>([]);
   const shouldFitRef = useRef(true);
@@ -232,6 +230,7 @@ export default function CandlestickChart({
     shouldFitRef.current = true;
     seriesKeyRef.current = "";
     viewKeyRef.current = `${symbol}-${interval}`;
+    mergedBarsRef.current = [];
     setLegend(null);
   }, [interval, symbol]);
 
@@ -269,7 +268,7 @@ export default function CandlestickChart({
       },
       rightPriceScale: {
         borderColor: THEME.border,
-        scaleMargins: { top: 0.08, bottom: 0.05 },
+        scaleMargins: { top: 0.08, bottom: 0.24 },
       },
       timeScale: {
         borderColor: THEME.border,
@@ -289,18 +288,21 @@ export default function CandlestickChart({
       wickDownColor: THEME.wick,
     });
 
-    const volumePane = chart.addPane();
-    volumePane.setHeight(72);
-    const volumeSeries = volumePane.addSeries(HistogramSeries, {
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
+      priceScaleId: "volume",
       lastValueVisible: false,
       priceLineVisible: false,
+    });
+
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+      borderColor: THEME.border,
     });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
-    volumePaneRef.current = volumePane;
     priceLineRef.current = null;
 
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
@@ -341,7 +343,6 @@ export default function CandlestickChart({
 
       try {
         chart.applyOptions({ width, height });
-        volumePane.setHeight(Math.max(56, Math.floor(height * 0.18)));
       } catch {
         /* chart may be mid-disposal */
       }
@@ -356,7 +357,6 @@ export default function CandlestickChart({
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
-      volumePaneRef.current = null;
       priceLineRef.current = null;
     };
   }, []);
@@ -373,15 +373,17 @@ export default function CandlestickChart({
 
     const prevBars = mergedBarsRef.current;
 
+    const viewKey = `${symbol}-${interval}`;
+
     if (mergedBars.length === 0) {
-      if (prevBars.length > 0) return;
+      if (prevBars.length > 0 && viewKeyRef.current === viewKey) return;
       candleSeries.setData([]);
       volumeSeries.setData([]);
       mergedBarsRef.current = [];
+      seriesKeyRef.current = "";
       return;
     }
 
-    const viewKey = `${symbol}-${interval}`;
     const seriesKey = `${viewKey}-${String(mergedBars[0]?.time)}-${mergedBars.length}`;
     const prevLast = prevBars.at(-1);
     const nextLast = mergedBars.at(-1)!;
@@ -391,6 +393,7 @@ export default function CandlestickChart({
       viewKeyRef.current !== viewKey ||
       seriesKeyRef.current !== seriesKey ||
       prevBars.length === 0 ||
+      mergedBars.length > prevBars.length ||
       (prevBars.length > 1 &&
         mergedBars.length > 1 &&
         prevBars[0]?.time !== mergedBars[0]?.time);

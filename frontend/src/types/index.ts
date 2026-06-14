@@ -87,7 +87,13 @@ export type WsMessage =
   | { type: "TRADE"; symbol: string; price: number; quantity: number; timestamp: number }
   | { type: "BALANCE_SNAPSHOT"; balances: Record<string, Balance> }
   | { type: "BALANCE_UPDATE"; balances: Record<string, Balance> }
-  | { type: "CANDLE_SNAPSHOT"; symbol: string; interval: string; open: number; high: number; low: number; close: number; volume: number; startTime: number }
+  | {
+      type: "CANDLE_SNAPSHOT";
+      symbol: string;
+      interval: string;
+      candles: Candle[];
+      current: Candle | null;
+    }
   | { type: "CANDLE_UPDATE"; symbol: string; interval: string; open: number; high: number; low: number; close: number; volume: number; startTime: number }
   | { type: "ERROR"; message: string };
 

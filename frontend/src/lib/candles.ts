@@ -43,7 +43,7 @@ export function appendCandleIfMissing(candles: Candle[], candle: Candle): Candle
   return sortCandles([...candles, candle]);
 }
 
-/** Split API payload into sorted history + live candle without duplicate timestamps. */
+/** Split payload into sorted history + live candle without duplicate timestamps. */
 export function normalizeCandleFetchResponse(
   candles: Candle[],
   current: Candle | null,
@@ -58,6 +58,23 @@ export function normalizeCandleFetchResponse(
   );
 
   return { candles: historical, current };
+}
+
+function pickFresherCurrent(a: Candle | null, b: Candle | null): Candle | null {
+  if (!a) return b;
+  if (!b) return a;
+  return startTimeToMs(b.startTime) >= startTimeToMs(a.startTime) ? b : a;
+}
+
+/** Merge two snapshots without dropping the longer history. */
+export function mergeSeriesSnapshots(
+  base: CandleSeriesSnapshot,
+  incoming: CandleSeriesSnapshot,
+): CandleSeriesSnapshot {
+  const candles =
+    incoming.candles.length >= base.candles.length ? incoming.candles : base.candles;
+  const current = pickFresherCurrent(base.current, incoming.current);
+  return normalizeCandleFetchResponse(candles, current);
 }
 
 export function applyLiveCandleUpdate(
