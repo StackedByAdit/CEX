@@ -1,19 +1,31 @@
 import { prisma } from "../prisma";
-import { ORDERBOOK, BALANCES } from "../state";
+import { ORDERBOOK } from "../state";
 import type { MemoryOrder } from "../types/order";
 import { assureBalance } from "./assureBalance";
+import { roundInr, roundQty } from "./marketOrder";
 
 export interface MatchResult {
     status: MemoryOrder["status"];
     filledQuantity: number;
     fills: { price: number; quantity: number }[];
     counterPartyUserIds: string[];
+    actualQuote: number;
+    refundQuote: number;
 }
 
 export async function matchOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
     const counterPartyUserIds: string[] = [];
     const firm = ORDERBOOK[order.symbol];
-    if (!firm) return { status: order.status, filledQuantity: order.filledQuantity, fills: [], counterPartyUserIds: [] };
+    if (!firm) {
+        return {
+            status: order.status,
+            filledQuantity: order.filledQuantity,
+            fills: [],
+            counterPartyUserIds: [],
+            actualQuote: 0,
+            refundQuote: 0,
+        };
+    }
 
     const fills: { price: number; quantity: number }[] = [];
 
@@ -185,7 +197,56 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
         }
     }
 
-    if (order.filledQuantity === order.quantity) {
+    const actualQuote = roundInr(fills.reduce((sum, fill) => sum + fill.price * fill.quantity, 0));
+    let refundQuote = 0;
+
+    if (order.type === "MARKET") {
+        if (order.side === "BUY") {
+            const locked = order.lockedQuoteAmount ?? 0;
+            refundQuote = roundInr(Math.max(0, locked - actualQuote));
+
+            if (refundQuote > 0) {
+                const buyerInr = await assureBalance(order.userId, "INR");
+                buyerInr.locked -= refundQuote;
+                buyerInr.available += refundQuote;
+
+                prisma.balance.update({
+                    where: { id: buyerInr.balanceId },
+                    data: {
+                        locked: { decrement: refundQuote },
+                        available: { increment: refundQuote },
+                    },
+                }).catch(err => console.error("DB sync error (market buy refund):", err));
+            }
+
+            order.lockedQuoteAmount = undefined;
+        } else {
+            const unfilledQty = roundQty(order.quantity - order.filledQuantity);
+            if (unfilledQty > 0) {
+                const sellerStock = await assureBalance(order.userId, order.symbol);
+                sellerStock.locked -= unfilledQty;
+                sellerStock.available += unfilledQty;
+
+                prisma.balance.update({
+                    where: { id: sellerStock.balanceId },
+                    data: {
+                        locked: { decrement: unfilledQty },
+                        available: { increment: unfilledQty },
+                    },
+                }).catch(err => console.error("DB sync error (market sell refund):", err));
+            }
+        }
+    }
+
+    if (order.type === "MARKET") {
+        if (order.filledQuantity === order.quantity) {
+            order.status = "FILLED";
+        } else if (order.filledQuantity > 0) {
+            order.status = "PARTIALLY_FILLED";
+        } else {
+            order.status = "CANCELLED";
+        }
+    } else if (order.filledQuantity === order.quantity) {
         order.status = "FILLED";
     } else if (order.filledQuantity > 0) {
         order.status = "PARTIALLY_FILLED";
@@ -193,5 +254,12 @@ export async function matchOrder(order: MemoryOrder, stockId: string): Promise<M
         order.status = "PENDING";
     }
 
-return { status: order.status, filledQuantity: order.filledQuantity, fills, counterPartyUserIds };
+return {
+        status: order.status,
+        filledQuantity: order.filledQuantity,
+        fills,
+        counterPartyUserIds,
+        actualQuote,
+        refundQuote,
+    };
 }

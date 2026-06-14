@@ -6,7 +6,6 @@ import type { OrderStatus } from "../generated/prisma/client";
 const express = require("express");
 const app = express();
 app.use(express.json());
-import { redisClient, resultClient } from "./redis";
 import { initWS } from "./ws";
 
 
@@ -16,9 +15,10 @@ import { loginSchema, orderSchema, signupSchema } from "./schemas/zodSchema";
 import type { MemoryOrder } from "./types/order";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
-import { ORDERS, ORDERBOOK, BALANCES, CANDLES } from "./state";
+import { ORDERS, ORDERBOOK, BALANCES, CANDLES, STOCK_BY_SYMBOL } from "./state";
 import { advanceCandlesIfNeeded } from "./utils/candle";
-import { runWorker } from "./worker";
+import { estimateMarketBuy, estimateMarketSell, roundInr, roundQty } from "./utils/marketOrder";
+import { executeOrder, runWorker } from "./worker";
 const PORT = 3000;
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -149,14 +149,17 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     const order = orderSchema.safeParse(req.body);
 
     if (!order.success) {
-        return res.status(400).json({ message: "invalid order" });
+        return res.status(400).json({ message: order.error.issues[0]?.message ?? "invalid order" });
     }
 
     const { side, type, symbol, price, quantity } = order.data;
+    const orderQuantity = roundQty(quantity);
 
     const userId = req.id!;
 
-    const stock = await prisma.stock.findUnique({ where: { symbol } });
+    const stock = STOCK_BY_SYMBOL[symbol]
+        ? { id: STOCK_BY_SYMBOL[symbol]!.id, symbol }
+        : await prisma.stock.findUnique({ where: { symbol } });
 
     if (!stock) {
         return res.status(404).json({ message: "Stock not found" });
@@ -168,18 +171,18 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
     const stockId = stock.id;
 
-    const inrBalance = await assureBalance(userId, "INR");
-    const stockBalance = await assureBalance(userId, symbol);
+    const [inrBalance, stockBalance] = await Promise.all([
+        assureBalance(userId, "INR"),
+        assureBalance(userId, symbol),
+    ]);
+
+    let lockedQuoteAmount: number | undefined;
 
     if (side == "BUY") {
 
         if (type == "LIMIT") {
 
-            if (price === undefined) {
-                return res.status(400).json({ message: "Price required for LIMIT order" });
-            }
-
-            const amount = price * quantity;
+            const amount = roundInr(price! * orderQuantity);
 
             if (inrBalance.available < amount) {
                 return res.status(400).json({ message: "INSUFFICIENT INR" });
@@ -198,25 +201,51 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         }
 
         if (type === "MARKET") {
-            return res.status(400).json({
-                message: "how we gonna implement account balance check"
-            });
+            const estimate = estimateMarketBuy(symbol, orderQuantity);
+
+            if (estimate.fillableQuantity <= 0) {
+                return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
+            }
+
+            lockedQuoteAmount = estimate.estimatedQuote;
+
+            if (inrBalance.available < lockedQuoteAmount) {
+                return res.status(400).json({ message: "INSUFFICIENT INR" });
+            }
+
+            inrBalance.available -= lockedQuoteAmount;
+            inrBalance.locked += lockedQuoteAmount;
+
+            prisma.balance.update({
+                where: { id: inrBalance.balanceId },
+                data: {
+                    available: { decrement: lockedQuoteAmount },
+                    locked: { increment: lockedQuoteAmount }
+                }
+            }).catch(err => console.error("DB sync error (market buy lock):", err));
         }
 
     } else {
 
-        if (stockBalance.available < quantity) {
+        if (stockBalance.available < orderQuantity) {
             return res.status(400).json({ message: `INSUFFICIENT ${symbol}` });
         }
 
-        stockBalance.available -= quantity;
-        stockBalance.locked += quantity;
+        if (type === "MARKET") {
+            const estimate = estimateMarketSell(symbol, orderQuantity);
+            if (estimate.fillableQuantity <= 0) {
+                return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
+            }
+        }
+
+        stockBalance.available -= orderQuantity;
+        stockBalance.locked += orderQuantity;
 
         prisma.balance.update({
             where: { id: stockBalance.balanceId },
             data: {
-                available: { decrement: quantity },
-                locked: { increment: quantity }
+                available: { decrement: orderQuantity },
+                locked: { increment: orderQuantity }
             }
         }).catch(err => console.error("DB sync error (sell lock):", err));
     }
@@ -228,8 +257,8 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
             side,
             type,
             status: "PENDING",
-            price,
-            quantity,
+            price: type === "LIMIT" ? price : null,
+            quantity: orderQuantity,
             filledQuantity: 0
         }
     });
@@ -241,29 +270,23 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         symbol,
         type,
         status: "PENDING",
-        price,
-        quantity,
-        filledQuantity: 0
+        price: type === "LIMIT" ? price : undefined,
+        quantity: orderQuantity,
+        filledQuantity: 0,
+        lockedQuoteAmount,
     };
 
-    await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId: stock.id }));
-    console.log("Pushed to queue:", dbOrder.id);
-
-    const redisRes = await resultClient.blpop(`result:${dbOrder.id}`, 10);
-    if (!redisRes) {
-        return res.status(408).json({ message: "Order processing timed out" });
-    }
-
-    const result = JSON.parse(redisRes[1]);
-
-    console.log(result);
+    const result = await executeOrder(currOrder, stockId);
 
     return res.status(200).json({
         orderId: dbOrder.id,
         status: result.status,
         filledQuantity: result.filledQuantity,
-        remainingQuantity: quantity - result.filledQuantity,
+        remainingQuantity: roundQty(orderQuantity - result.filledQuantity),
         fills: result.fills,
+        actualQuote: result.actualQuote,
+        refundQuote: result.refundQuote,
+        estimatedQuote: lockedQuoteAmount ?? (type === "LIMIT" && side === "BUY" ? roundInr(price! * orderQuantity) : undefined),
     });
 });
 
@@ -463,6 +486,11 @@ const interval = req.params.interval as string;
 });
 
 async function bootstrap() {
+    const stocks = await prisma.stock.findMany();
+    for (const stock of stocks) {
+        STOCK_BY_SYMBOL[stock.symbol] = { id: stock.id };
+    }
+
     const balances = await prisma.balance.findMany({ include: { stock: true } });
     for (const balance of balances) {
         const symbol = balance.assetType === "INR" ? "INR" : balance.stock!.symbol;
