@@ -210,6 +210,7 @@ export default function CandlestickChart({
   const mergedBarsRef = useRef<MergedBar[]>([]);
   const shouldFitRef = useRef(true);
   const seriesKeyRef = useRef("");
+  const viewKeyRef = useRef("");
   const intervalRef = useRef(interval);
 
   const [legend, setLegend] = useState<LegendState | null>(null);
@@ -230,6 +231,7 @@ export default function CandlestickChart({
   useEffect(() => {
     shouldFitRef.current = true;
     seriesKeyRef.current = "";
+    viewKeyRef.current = `${symbol}-${interval}`;
     setLegend(null);
   }, [interval, symbol]);
 
@@ -272,7 +274,7 @@ export default function CandlestickChart({
       timeScale: {
         borderColor: THEME.border,
         timeVisible: true,
-        secondsVisible: interval === "1m",
+        secondsVisible: intervalRef.current === "1m",
         rightOffset: 4,
       },
       handleScroll: { vertTouchDrag: false },
@@ -357,7 +359,7 @@ export default function CandlestickChart({
       volumePaneRef.current = null;
       priceLineRef.current = null;
     };
-  }, [interval]);
+  }, []);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -369,20 +371,24 @@ export default function CandlestickChart({
       timeScale: { secondsVisible: interval === "1m" },
     });
 
+    const prevBars = mergedBarsRef.current;
+
     if (mergedBars.length === 0) {
+      if (prevBars.length > 0) return;
       candleSeries.setData([]);
       volumeSeries.setData([]);
       mergedBarsRef.current = [];
       return;
     }
 
-    const seriesKey = `${symbol}-${interval}-${String(mergedBars[0]?.time)}-${mergedBars.length}`;
-    const prevBars = mergedBarsRef.current;
+    const viewKey = `${symbol}-${interval}`;
+    const seriesKey = `${viewKey}-${String(mergedBars[0]?.time)}-${mergedBars.length}`;
     const prevLast = prevBars.at(-1);
     const nextLast = mergedBars.at(-1)!;
 
     const isFullReload =
       shouldFitRef.current ||
+      viewKeyRef.current !== viewKey ||
       seriesKeyRef.current !== seriesKey ||
       prevBars.length === 0 ||
       (prevBars.length > 1 &&

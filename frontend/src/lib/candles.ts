@@ -9,6 +9,11 @@ const INTERVAL_MS: Record<CandleInterval, number> = {
   "1d": 86_400_000,
 };
 
+export interface CandleSeriesSnapshot {
+  candles: Candle[];
+  current: Candle | null;
+}
+
 /** Normalize API/WS startTime values to epoch milliseconds. */
 export function startTimeToMs(startTime: number | string): number {
   if (typeof startTime === "string") {
@@ -22,9 +27,66 @@ export function getCandleStartMs(timestamp: number, interval: CandleInterval): n
   return Math.floor(timestamp / ms) * ms;
 }
 
+export function candleSeriesKey(symbol: string, interval: CandleInterval | string): string {
+  return `${symbol}:${interval}`;
+}
+
+export function sortCandles(candles: Candle[]): Candle[] {
+  return [...candles].sort((a, b) => startTimeToMs(a.startTime) - startTimeToMs(b.startTime));
+}
+
 export function appendCandleIfMissing(candles: Candle[], candle: Candle): Candle[] {
   const candleMs = startTimeToMs(candle.startTime);
-  const exists = candles.some((c) => startTimeToMs(c.startTime) === candleMs);
-  if (exists) return candles;
-  return [...candles, candle];
+  if (candles.some((c) => startTimeToMs(c.startTime) === candleMs)) {
+    return sortCandles(candles);
+  }
+  return sortCandles([...candles, candle]);
+}
+
+/** Split API payload into sorted history + live candle without duplicate timestamps. */
+export function normalizeCandleFetchResponse(
+  candles: Candle[],
+  current: Candle | null,
+): CandleSeriesSnapshot {
+  if (!current) {
+    return { candles: sortCandles(candles), current: null };
+  }
+
+  const currentMs = startTimeToMs(current.startTime);
+  const historical = sortCandles(
+    candles.filter((c) => startTimeToMs(c.startTime) !== currentMs),
+  );
+
+  return { candles: historical, current };
+}
+
+export function applyLiveCandleUpdate(
+  snapshot: CandleSeriesSnapshot,
+  next: Candle,
+  rollForward: boolean,
+): CandleSeriesSnapshot {
+  const candles = rollForward && snapshot.current
+    ? appendCandleIfMissing(snapshot.candles, snapshot.current)
+    : snapshot.candles;
+
+  return normalizeCandleFetchResponse(candles, next);
+}
+
+export class CandleSeriesCache {
+  private entries = new Map<string, CandleSeriesSnapshot>();
+
+  get(key: string): CandleSeriesSnapshot | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, snapshot: CandleSeriesSnapshot) {
+    this.entries.set(key, snapshot);
+  }
+
+  update(key: string, updater: (prev: CandleSeriesSnapshot) => CandleSeriesSnapshot) {
+    const prev = this.entries.get(key) ?? { candles: [], current: null };
+    const next = updater(prev);
+    this.entries.set(key, next);
+    return next;
+  }
 }
