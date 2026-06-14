@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Balance, Fill, Order, Stock } from "../../types";
-import { cancelOrder } from "../../lib/api";
+import { cancelOrder, ApiError } from "../../lib/api";
 
 type Tab = "open" | "history" | "trades" | "funds";
 
@@ -10,6 +10,7 @@ interface OrdersPanelProps {
   balances: Record<string, Balance>;
   stocks: Stock[];
   onRefresh: () => void;
+  onOrderCancelled?: (orderId: string) => void;
 }
 
 function toNum(v: string | number | null | undefined) {
@@ -33,12 +34,16 @@ export default function OrdersPanel({
   balances,
   stocks,
   onRefresh,
+  onOrderCancelled,
 }: OrdersPanelProps) {
   const [tab, setTab] = useState<Tab>("open");
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const openOrders = orders.filter(
-    (o) => o.status === "PENDING" || o.status === "PARTIALLY_FILLED",
+    (o) =>
+      o.type === "LIMIT" &&
+      (o.status === "PENDING" || o.status === "PARTIALLY_FILLED"),
   );
   const historyOrders = orders.filter(
     (o) => o.status === "FILLED" || o.status === "CANCELLED",
@@ -46,11 +51,13 @@ export default function OrdersPanel({
 
   async function handleCancel(orderId: string) {
     setCancelling(orderId);
+    setCancelError(null);
     try {
       await cancelOrder(orderId);
+      onOrderCancelled?.(orderId);
       onRefresh();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      setCancelError(err instanceof ApiError ? err.message : "Failed to cancel order");
     } finally {
       setCancelling(null);
     }
@@ -80,6 +87,12 @@ export default function OrdersPanel({
           </button>
         ))}
       </div>
+
+      {cancelError && (
+        <div className="border-b border-orbit-border bg-orbit-red/10 px-4 py-2 text-xs text-orbit-red">
+          {cancelError}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {tab === "open" && (

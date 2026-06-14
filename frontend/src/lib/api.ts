@@ -81,7 +81,13 @@ export async function fetchTrades(symbol: string) {
 }
 
 export async function fetchTicker(symbol: string) {
-  return request<{ price: number | null }>(`/ticker/${symbol}`);
+  return request<{
+    price: number | null;
+    change24h: number;
+    high24h: number | null;
+    low24h: number | null;
+    volume24h: number;
+  }>(`/ticker/${symbol}`);
 }
 
 export async function fetchCandles(symbol: string, interval: CandleInterval) {

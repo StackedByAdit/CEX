@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Footer from "../components/layout/Footer";
 import Navbar from "../components/layout/Navbar";
 import Sidebar from "../components/layout/Sidebar";
@@ -22,6 +22,7 @@ import {
   applyLiveCandleUpdate,
   candleSeriesKey,
   CandleSeriesCache,
+  mergeSeriesSnapshots,
   normalizeCandleFetchResponse,
   startTimeToMs,
   type CandleSeriesSnapshot,
@@ -35,6 +36,9 @@ import type {
   Fill,
   Order,
   OrderbookLevel,
+  OrderSide,
+  OrderType,
+  PlaceOrderResponse,
   Stock,
   WsMessage,
 } from "../types";
@@ -69,13 +73,19 @@ export default function TradePage() {
   const [asks, setAsks] = useState<OrderbookLevel[]>([]);
   const [bids, setBids] = useState<OrderbookLevel[]>([]);
   const [lastPrice, setLastPrice] = useState<number | null>(null);
+  const [change24h, setChange24h] = useState(0);
+  const [high24h, setHigh24h] = useState<number | null>(null);
+  const [low24h, setLow24h] = useState<number | null>(null);
+  const [volume24h, setVolume24h] = useState(0);
   const [balances, setBalances] = useState<Record<string, Balance>>({});
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Fill[]>([]);
   const tradeRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tickerRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const candleCacheRef = useRef(new CandleSeriesCache());
   const activeCandleKeyRef = useRef(candleSeriesKey(symbol, candleInterval));
   const candleFetchGenRef = useRef(0);
+  const candleFetchReadyRef = useRef(new Set<string>());
 
   const publishCandleSnapshot = useCallback((key: string, snapshot: CandleSeriesSnapshot) => {
     candleCacheRef.current.set(key, snapshot);
@@ -113,16 +123,7 @@ export default function TradePage() {
     (key: string, candles: Candle[], current: Candle | null): CandleSeriesSnapshot => {
       const fetched = normalizeCandleFetchResponse(candles, current);
       const cached = candleCacheRef.current.get(key);
-
-      if (
-        cached?.current &&
-        fetched.current &&
-        startTimeToMs(cached.current.startTime) === startTimeToMs(fetched.current.startTime)
-      ) {
-        return { candles: fetched.candles, current: cached.current };
-      }
-
-      return fetched;
+      return cached ? mergeSeriesSnapshots(cached, fetched) : fetched;
     },
     [],
   );
@@ -147,6 +148,7 @@ export default function TradePage() {
         if (gen !== candleFetchGenRef.current || activeCandleKeyRef.current !== key) return;
 
         const snapshot = mergeFetchedWithCache(key, data.candles, data.current);
+        candleFetchReadyRef.current.add(key);
         publishCandleSnapshot(key, snapshot);
       } catch {
         /* keep cached candles on transient errors */
@@ -182,6 +184,19 @@ export default function TradePage() {
     }
   }, []);
 
+  const loadTicker = useCallback(async (sym: string) => {
+    try {
+      const ticker = await fetchTicker(sym);
+      setLastPrice(toPrice(ticker.price));
+      setChange24h(ticker.change24h);
+      setHigh24h(toPrice(ticker.high24h));
+      setLow24h(toPrice(ticker.low24h));
+      setVolume24h(ticker.volume24h);
+    } catch {
+      /* keep existing ticker on transient errors */
+    }
+  }, []);
+
   useEffect(() => {
     fetchStocks()
       .then((s) => {
@@ -205,9 +220,7 @@ export default function TradePage() {
     refreshTrades(symbol);
     refreshBalances();
 
-    fetchTicker(symbol)
-      .then((t) => setLastPrice(toPrice(t.price)))
-      .catch(() => {});
+    loadTicker(symbol);
 
     orbitWs.subscribeOrderbook(symbol);
     orbitWs.subscribeCandle(symbol, candleInterval);
@@ -224,6 +237,7 @@ export default function TradePage() {
     refreshOrders,
     refreshTrades,
     refreshBalances,
+    loadTicker,
     applyCandleView,
   ]);
 
@@ -236,6 +250,11 @@ export default function TradePage() {
         tradeRefreshTimer.current = setTimeout(() => {
           refreshTrades(symbol);
         }, 100);
+
+        if (tickerRefreshTimer.current) clearTimeout(tickerRefreshTimer.current);
+        tickerRefreshTimer.current = setTimeout(() => {
+          loadTicker(symbol);
+        }, 250);
       }
 
       if (
@@ -247,8 +266,18 @@ export default function TradePage() {
         setAsks(asks);
       }
 
-      if (msg.type === "CANDLE_UPDATE" || msg.type === "CANDLE_SNAPSHOT") {
+      if (msg.type === "CANDLE_SNAPSHOT") {
         const key = candleSeriesKey(msg.symbol, msg.interval);
+        const snapshot = normalizeCandleFetchResponse(msg.candles, msg.current);
+        candleFetchReadyRef.current.add(key);
+        publishCandleSnapshot(key, snapshot);
+        return;
+      }
+
+      if (msg.type === "CANDLE_UPDATE") {
+        const key = candleSeriesKey(msg.symbol, msg.interval);
+        if (!candleFetchReadyRef.current.has(key)) return;
+
         const nextCandle: Candle = {
           symbol: msg.symbol,
           interval: msg.interval as CandleInterval,
@@ -262,7 +291,6 @@ export default function TradePage() {
 
         const snapshot = candleCacheRef.current.update(key, (prev) => {
           const rollForward =
-            msg.type === "CANDLE_UPDATE" &&
             prev.current !== null &&
             startTimeToMs(prev.current.startTime) !== startTimeToMs(nextCandle.startTime);
 
@@ -283,30 +311,37 @@ export default function TradePage() {
     return () => {
       unsub();
       if (tradeRefreshTimer.current) clearTimeout(tradeRefreshTimer.current);
+      if (tickerRefreshTimer.current) clearTimeout(tickerRefreshTimer.current);
     };
-  }, [symbol, candleInterval, refreshTrades]);
+  }, [symbol, candleInterval, refreshTrades, loadTicker]);
 
-  const stats24h = useMemo(() => {
-    if (candles.length === 0) {
-      return { change: 0, high: lastPrice, low: lastPrice, volume: 0 };
-    }
+  const handleOrderPlaced = useCallback(
+    (
+      result: PlaceOrderResponse,
+      meta: { side: OrderSide; type: OrderType; quantity: number; price?: number },
+    ) => {
+      const stock = stocks.find((s) => s.symbol === symbol);
+      const now = new Date().toISOString();
 
-    const recent = candles.slice(-Math.min(candles.length, 96));
-    const first = recent[0]?.open ?? 0;
-    const last = currentCandle?.close ?? recent[recent.length - 1]?.close ?? lastPrice ?? 0;
-    const highs = recent.map((c) => c.high);
-    const lows = recent.map((c) => c.low);
-    const high = highs.length > 0 ? Math.max(...highs, last) : last;
-    const low = lows.length > 0 ? Math.min(...lows, last) : last;
-    const change = first > 0 ? ((last - first) / first) * 100 : 0;
-    const volume = recent.reduce((sum, c) => sum + c.volume, 0);
-
-    return { change, high, low, volume };
-  }, [candles, currentCandle, lastPrice]);
-
-  function handleOrderPlaced() {
-    void refreshOrders();
-  }
+      setOrders((prev) => [
+        {
+          id: result.orderId,
+          userId: "",
+          stockId: stock?.id ?? "",
+          side: meta.side,
+          type: meta.type,
+          status: result.status,
+          price: meta.type === "LIMIT" ? (meta.price ?? null) : null,
+          quantity: meta.quantity,
+          filledQuantity: result.filledQuantity,
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...prev,
+      ]);
+    },
+    [stocks, symbol],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-orbit-bg">
@@ -320,10 +355,10 @@ export default function TradePage() {
             symbol={symbol}
             stocks={stocks}
             lastPrice={lastPrice}
-            change24h={stats24h.change}
-            high24h={stats24h.high}
-            low24h={stats24h.low}
-            volume24h={stats24h.volume}
+            change24h={change24h}
+            high24h={high24h}
+            low24h={low24h}
+            volume24h={volume24h}
             onSymbolChange={handleSymbolChange}
           />
 
@@ -372,6 +407,14 @@ export default function TradePage() {
               onRefresh={() => {
                 refreshOrders();
                 refreshBalances();
+                loadOrderbook(symbol);
+              }}
+              onOrderCancelled={(orderId) => {
+                setOrders((prev) =>
+                  prev.map((order) =>
+                    order.id === orderId ? { ...order, status: "CANCELLED" } : order,
+                  ),
+                );
               }}
             />
           </div>

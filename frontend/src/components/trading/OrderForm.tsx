@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Balance, OrderSide, OrderType, OrderbookLevel } from "../../types";
+import type { Balance, OrderSide, OrderType, OrderbookLevel, PlaceOrderResponse } from "../../types";
 import { ApiError, placeOrder } from "../../lib/api";
 import {
   estimateMarketBuyFromAsks,
@@ -13,7 +13,10 @@ interface OrderFormProps {
   balances: Record<string, Balance>;
   asks: OrderbookLevel[];
   bids: OrderbookLevel[];
-  onOrderPlaced: () => void;
+  onOrderPlaced: (
+    result: PlaceOrderResponse,
+    meta: { side: OrderSide; type: OrderType; quantity: number; price?: number },
+  ) => void;
 }
 
 const PERCENTAGES = [25, 50, 75, 100] as const;
@@ -138,7 +141,12 @@ export default function OrderForm({
         `Order ${result.status.toLowerCase().replace("_", " ")}${refund}`,
       );
       setQuantity("");
-      onOrderPlaced();
+      onOrderPlaced(result, {
+        side,
+        type: orderType,
+        quantity: qty,
+        ...(orderType === "LIMIT" ? { price: pr } : {}),
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Order failed");
     } finally {
