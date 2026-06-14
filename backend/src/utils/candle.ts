@@ -49,6 +49,43 @@ function publishCandle(symbol: string, interval: Interval) {
         .catch(err => console.error("Pub/sub error (candle):", err));
 }
 
+function serializeDbCandle(candle: {
+    symbol: string;
+    interval: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    startTime: Date;
+}) {
+    return {
+        symbol: candle.symbol,
+        interval: candle.interval,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+        startTime: candle.startTime.getTime(),
+    };
+}
+
+export async function getCandleSnapshot(symbol: string, interval: Interval) {
+    await advanceCandlesIfNeeded();
+
+    const rows = await prisma.candle.findMany({
+        where: { symbol, interval },
+        orderBy: { startTime: "desc" },
+        take: 200,
+    });
+
+    return {
+        candles: rows.reverse().map(serializeDbCandle),
+        current: CANDLES[candleKey(symbol, interval)] ?? null,
+    };
+}
+
 function openCandle(
     symbol: string,
     interval: Interval,
