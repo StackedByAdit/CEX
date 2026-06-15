@@ -71,7 +71,7 @@ app.post("/signup", async (req: Request, res: Response) => {
                 if (!BALANCES[newUser.id]) BALANCES[newUser.id] = {};
 
                 BALANCES[newUser.id]![stock.symbol] = {
-                    available: 1000000000,
+                    available: 100000000,
                     locked: 0,
                     balanceId: balance.id
                 };
