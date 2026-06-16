@@ -40,7 +40,7 @@ export default function TickerBar({
         <select
           value={symbol}
           onChange={(e) => onSymbolChange(e.target.value)}
-          className="cursor-pointer bg-transparent text-lg font-semibold outline-none"
+          className="cursor-pointer rounded bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-white/20"
         >
           {stocks.map((s) => (
             <option key={s.symbol} value={s.symbol} className="bg-orbit-panel">
