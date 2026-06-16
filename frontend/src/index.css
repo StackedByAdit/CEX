@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --color-orbit-bg: #0a0a0a;
+  --color-orbit-panel: #121212;
+  --color-orbit-elevated: #1a1a1a;
+  --color-orbit-border: #262626;
+  --color-orbit-muted: #555555;
+  --color-orbit-secondary: #888888;
+  --color-orbit-green: #22c55e;
+  --color-orbit-red: #ef4444;
+  --color-candle-up: #ffffff;
+  --color-candle-down: #666666;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-orbit-bg);
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}

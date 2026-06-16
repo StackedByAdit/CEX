@@ -1,4 +1,4 @@
-import { CANDLES } from "../state";
+import { CANDLES, ORDERBOOK } from "../state";
 import { prisma } from "../prisma";
 import { publisher } from "../redis";
 
@@ -23,7 +23,118 @@ function candleKey(symbol: string, interval: Interval): string {
     return `${symbol}:${interval}`;
 }
 
+function persistCandle(candle: (typeof CANDLES)[string]) {
+    if (candle.volume <= 0) return;
+
+    prisma.candle.create({
+        data: {
+            symbol: candle.symbol,
+            interval: candle.interval,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: candle.volume,
+            startTime: new Date(candle.startTime),
+        },
+    }).catch(err => console.error("DB sync error (candle persist):", err));
+}
+
+function publishCandle(symbol: string, interval: Interval) {
+    const key = candleKey(symbol, interval);
+    const candle = CANDLES[key];
+    if (!candle) return;
+
+    publisher.publish(`candle:${symbol}:${interval}`, JSON.stringify(candle))
+        .catch(err => console.error("Pub/sub error (candle):", err));
+}
+
+function serializeDbCandle(candle: {
+    symbol: string;
+    interval: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    startTime: Date;
+}) {
+    return {
+        symbol: candle.symbol,
+        interval: candle.interval,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+        startTime: candle.startTime.getTime(),
+    };
+}
+
+export async function getCandleSnapshot(symbol: string, interval: Interval) {
+    await advanceCandlesIfNeeded();
+
+    const rows = await prisma.candle.findMany({
+        where: { symbol, interval },
+        orderBy: { startTime: "desc" },
+        take: 200,
+    });
+
+    return {
+        candles: rows.reverse().map(serializeDbCandle),
+        current: CANDLES[candleKey(symbol, interval)] ?? null,
+    };
+}
+
+function openCandle(
+    symbol: string,
+    interval: Interval,
+    startTime: number,
+    price: number,
+    quantity: number,
+) {
+    CANDLES[candleKey(symbol, interval)] = {
+        symbol,
+        interval,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: quantity,
+        startTime,
+    };
+}
+
+function rollCandleToStart(
+    symbol: string,
+    interval: Interval,
+    startTime: number,
+    lastClose: number,
+) {
+    openCandle(symbol, interval, startTime, lastClose, 0);
+}
+
+/** Advance in-memory candles when wall-clock crosses an interval boundary (even without trades). */
+export async function advanceCandlesIfNeeded(now = Date.now()) {
+    for (const symbol of Object.keys(ORDERBOOK)) {
+        for (const interval of INTERVALS) {
+            const key = candleKey(symbol, interval);
+            const existing = CANDLES[key];
+            if (!existing) continue;
+
+            const expectedStart = getCandleStart(now, interval);
+            if (existing.startTime >= expectedStart) continue;
+
+            persistCandle(existing);
+            rollCandleToStart(symbol, interval, expectedStart, existing.close);
+            publishCandle(symbol, interval);
+        }
+    }
+}
+
 export async function processTrade(symbol: string, price: number, quantity: number, timestamp: number) {
+    await advanceCandlesIfNeeded(timestamp);
+
     for (const interval of INTERVALS) {
         const key = candleKey(symbol, interval);
         const startTime = getCandleStart(timestamp, interval);
@@ -31,31 +142,10 @@ export async function processTrade(symbol: string, price: number, quantity: numb
 
         if (!existing || existing.startTime !== startTime) {
             if (existing) {
-                prisma.candle.create({
-                    data: {
-                        symbol: existing.symbol,
-                        interval: existing.interval,
-                        open: existing.open,
-                        high: existing.high,
-                        low: existing.low,
-                        close: existing.close,
-                        volume: existing.volume,
-                        startTime: new Date(existing.startTime),
-                    }
-                }).catch(err => console.error("DB sync error (candle persist):", err));
+                persistCandle(existing);
             }
 
-            CANDLES[key] = {
-                symbol,
-                interval,
-                open: price,
-                high: price,
-                low: price,
-                close: price,
-                volume: quantity,
-                startTime,
-            };
-
+            openCandle(symbol, interval, startTime, price, quantity);
         } else {
             existing.high = Math.max(existing.high, price);
             existing.low = Math.min(existing.low, price);
@@ -63,7 +153,6 @@ export async function processTrade(symbol: string, price: number, quantity: numb
             existing.volume += quantity;
         }
 
-        publisher.publish(`candle:${symbol}:${interval}`, JSON.stringify(CANDLES[key]))
-            .catch(err => console.error("Pub/sub error (candle):", err));
+        publishCandle(symbol, interval);
     }
 }

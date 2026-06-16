@@ -29,8 +29,8 @@ async function login(username: string, password: string): Promise<string> {
 async function placeOrder(token: string) {
     const symbol = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]!;
     const side = Math.random() > 0.5 ? "BUY" : "SELL";
-    const price = Math.floor(Math.random() * 10) + 95;
-    const quantity = Math.floor(Math.random() * 5) + 1;
+    const price = Math.floor(Math.random() * 40) + 80;
+    const quantity = Math.floor(Math.random() * 10) + 1;
 
     try {
         await axios.post(
