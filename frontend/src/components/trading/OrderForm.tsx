@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import type { Balance, OrderSide, OrderType, OrderbookLevel, PlaceOrderResponse } from "../../types";
 import { ApiError, placeOrder } from "../../lib/api";
 import {
@@ -15,7 +15,7 @@ interface OrderFormProps {
   bids: OrderbookLevel[];
   onOrderPlaced: (
     result: PlaceOrderResponse,
-    meta: { side: OrderSide; type: OrderType; quantity: number; price?: number },
+    meta: { symbol: string; side: OrderSide; type: OrderType; quantity: number; price?: number },
   ) => void;
 }
 
@@ -60,10 +60,12 @@ export default function OrderForm({
   function applyPercentage(pct: number) {
     if (side === "BUY") {
       if (orderType === "MARKET") {
-        if (!marketEstimate || marketEstimate.averagePrice <= 0) return;
+        const marketPrice = asks.find((level) => level.amount > 0)?.price ?? toPrice(lastPrice) ?? 0;
+        if (marketPrice <= 0) return;
+
         const maxQty = Math.min(
-          marketEstimate.fillableQuantity,
-          inrAvailable / marketEstimate.averagePrice,
+          asks.reduce((sum, level) => sum + (level.amount > 0 ? level.amount : 0), 0),
+          inrAvailable / marketPrice,
         );
         setQuantity(((maxQty * pct) / 100).toFixed(4));
         return;
@@ -82,7 +84,7 @@ export default function OrderForm({
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     setSuccess("");
@@ -142,6 +144,7 @@ export default function OrderForm({
       );
       setQuantity("");
       onOrderPlaced(result, {
+        symbol,
         side,
         type: orderType,
         quantity: qty,
