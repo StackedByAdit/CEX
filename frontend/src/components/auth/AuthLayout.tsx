@@ -1,9 +1,10 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 interface AuthLayoutProps {
   title: string;
   subtitle: string;
-  children: React.ReactNode;
+  children: ReactNode;
   footerText: string;
   footerLink: { to: string; label: string };
 }
