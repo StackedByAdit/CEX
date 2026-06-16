@@ -1,4 +1,4 @@
-import { getToken } from "./auth";
+import { clearAuth } from "./auth";
 import type {
   Balance,
   Candle,
@@ -19,20 +19,18 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, { ...options, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    if (res.status === 401) {
+      clearAuth();
+    }
     throw new ApiError(data.message ?? data.msg ?? "Request failed", res.status);
   }
 
@@ -47,10 +45,14 @@ export async function signup(username: string, password: string) {
 }
 
 export async function login(username: string, password: string) {
-  return request<{ message: string; token: string }>("/login", {
+  return request<{ message: string; username: string }>("/login", {
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
+}
+
+export async function logout() {
+  return request<{ message: string }>("/logout", { method: "POST" });
 }
 
 export async function fetchStocks() {
@@ -65,18 +67,18 @@ export async function fetchBalances() {
 
 export async function fetchOrderbook(symbol: string) {
   return request<{ bids: Record<string, number>; asks: Record<string, number> }>(
-    `/orderbook/${symbol}`,
+    `/orderbook/${encodeURIComponent(symbol)}`,
   );
 }
 
 export async function fetchOrders(status?: string) {
-  const query = status ? `?status=${status}` : "";
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
   const data = await request<{ orders: Order[] }>(`/orders${query}`);
   return data.orders;
 }
 
 export async function fetchTrades(symbol: string) {
-  const data = await request<{ fills: Fill[] }>(`/trades/${symbol}`);
+  const data = await request<{ fills: Fill[] }>(`/trades/${encodeURIComponent(symbol)}`);
   return data.fills;
 }
 
@@ -87,12 +89,12 @@ export async function fetchTicker(symbol: string) {
     high24h: number | null;
     low24h: number | null;
     volume24h: number;
-  }>(`/ticker/${symbol}`);
+  }>(`/ticker/${encodeURIComponent(symbol)}`);
 }
 
 export async function fetchCandles(symbol: string, interval: CandleInterval) {
   return request<{ candles: Candle[]; current: Candle | null }>(
-    `/candles/${symbol}/${interval}`,
+    `/candles/${encodeURIComponent(symbol)}/${encodeURIComponent(interval)}`,
   );
 }
 
@@ -104,7 +106,7 @@ export async function placeOrder(payload: PlaceOrderPayload) {
 }
 
 export async function cancelOrder(orderId: string) {
-  return request<{ message: string }>(`/order/${orderId}`, { method: "DELETE" });
+  return request<{ message: string }>(`/order/${encodeURIComponent(orderId)}`, { method: "DELETE" });
 }
 
 export { ApiError };
