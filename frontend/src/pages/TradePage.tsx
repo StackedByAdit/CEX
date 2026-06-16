@@ -318,9 +318,9 @@ export default function TradePage() {
   const handleOrderPlaced = useCallback(
     (
       result: PlaceOrderResponse,
-      meta: { side: OrderSide; type: OrderType; quantity: number; price?: number },
+      meta: { symbol: string; side: OrderSide; type: OrderType; quantity: number; price?: number },
     ) => {
-      const stock = stocks.find((s) => s.symbol === symbol);
+      const stock = stocks.find((s) => s.symbol === meta.symbol);
       const now = new Date().toISOString();
 
       setOrders((prev) => [
@@ -340,7 +340,7 @@ export default function TradePage() {
         ...prev,
       ]);
     },
-    [stocks, symbol],
+    [stocks],
   );
 
   return (

@@ -9,6 +9,7 @@ export default defineConfig({
     proxy: {
       "/signup": "http://localhost:3000",
       "/login": "http://localhost:3000",
+      "/logout": "http://localhost:3000",
       "/order": "http://localhost:3000",
       "/orders": "http://localhost:3000",
       "/orderbook": "http://localhost:3000",
@@ -18,6 +19,10 @@ export default defineConfig({
       "/fills": "http://localhost:3000",
       "/stocks": "http://localhost:3000",
       "/candles": "http://localhost:3000",
+      "/ws": {
+        target: "http://localhost:8080",
+        ws: true,
+      },
     },
   },
 });

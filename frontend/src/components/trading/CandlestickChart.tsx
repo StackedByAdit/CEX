@@ -422,7 +422,19 @@ export default function CandlestickChart({
 
   useEffect(() => {
     const candleSeries = candleSeriesRef.current;
-    if (!candleSeries || livePrice === null) return;
+    if (!candleSeries) return;
+
+    if (livePrice === null) {
+      if (priceLineRef.current) {
+        try {
+          candleSeries.removePriceLine(priceLineRef.current);
+        } catch {
+          /* series may be mid-disposal */
+        }
+        priceLineRef.current = null;
+      }
+      return;
+    }
 
     try {
       if (!priceLineRef.current) {

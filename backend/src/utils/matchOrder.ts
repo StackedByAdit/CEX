@@ -74,20 +74,21 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 order.filledQuantity += tradeQty;
                 sellOrder.filledQuantity += tradeQty;
 
+                const tradeQuote = roundInr(tradeQty * price);
                 const sellerStock = getBalance(sellOrder.userId, order.symbol);
                 const sellerInr = getBalance(sellOrder.userId, "INR");
                 const buyerStock = getBalance(order.userId, order.symbol);
                 const buyerInr = getBalance(order.userId, "INR");
 
-                buyerInr.locked -= tradeQty * price;
+                buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
-                sellerInr.available += tradeQty * price;
+                sellerInr.available += tradeQuote;
 
                 Promise.all([
                     prisma.balance.update({
                         where: { id: buyerInr.balanceId },
-                        data: { locked: { decrement: tradeQty * price } },
+                        data: { locked: { decrement: tradeQuote } },
                     }),
                     prisma.balance.update({
                         where: { id: buyerStock.balanceId },
@@ -99,7 +100,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                     }),
                     prisma.balance.update({
                         where: { id: sellerInr.balanceId },
-                        data: { available: { increment: tradeQty * price } },
+                        data: { available: { increment: tradeQuote } },
                     }),
                 ]).catch(err => console.error("DB sync error (buy match balances):", err));
 
@@ -147,20 +148,21 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 order.filledQuantity += tradeQty;
                 buyOrder.filledQuantity += tradeQty;
 
+                const tradeQuote = roundInr(tradeQty * price);
                 const buyerStock = getBalance(buyOrder.userId, order.symbol);
                 const buyerInr = getBalance(buyOrder.userId, "INR");
                 const sellerStock = getBalance(order.userId, order.symbol);
                 const sellerInr = getBalance(order.userId, "INR");
 
-                buyerInr.locked -= tradeQty * price;
+                buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
-                sellerInr.available += tradeQty * price;
+                sellerInr.available += tradeQuote;
 
                 Promise.all([
                     prisma.balance.update({
                         where: { id: buyerInr.balanceId },
-                        data: { locked: { decrement: tradeQty * price } },
+                        data: { locked: { decrement: tradeQuote } },
                     }),
                     prisma.balance.update({
                         where: { id: buyerStock.balanceId },
@@ -172,7 +174,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                     }),
                     prisma.balance.update({
                         where: { id: sellerInr.balanceId },
-                        data: { available: { increment: tradeQty * price } },
+                        data: { available: { increment: tradeQuote } },
                     }),
                 ]).catch(err => console.error("DB sync error (sell match balances):", err));
 
@@ -207,7 +209,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
         }
     }
 
-    const actualQuote = roundInr(fills.reduce((sum, fill) => sum + fill.price * fill.quantity, 0));
+    const actualQuote = fills.reduce((sum, fill) => sum + roundInr(fill.price * fill.quantity), 0);
     let refundQuote = 0;
 
     if (order.type === "MARKET") {

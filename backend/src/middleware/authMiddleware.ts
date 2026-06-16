@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import type { JwtPayload } from "jsonwebtoken";
 import jwt from "jsonwebtoken";
+import { getSessionTokenFromRequest } from "../utils/sessionCookie";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -21,15 +22,13 @@ export async function authMiddleware(
     next: NextFunction
 ) {
     try {
-        const authHeader = req.headers.authorization;
+        const token = getSessionTokenFromRequest(req);
 
-        if (!authHeader) {
-            return res.status(400).json({
+        if (!token) {
+            return res.status(401).json({
                 message: "token missing"
             });
         }
-
-        const token = authHeader.split(" ")[1]!;
 
         const verified = jwt.verify(token, JWT_SECRET) as JwtPayload;
 

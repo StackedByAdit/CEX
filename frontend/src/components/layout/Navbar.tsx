@@ -1,12 +1,18 @@
 import { Bell, LogOut, Settings } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { clearAuth, getUsername } from "../../lib/auth";
+import { logout } from "../../lib/api";
 
 export default function Navbar() {
   const navigate = useNavigate();
   const username = getUsername();
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch {
+      /* clear local state even if cookie clear fails */
+    }
     clearAuth();
     navigate("/login");
   }

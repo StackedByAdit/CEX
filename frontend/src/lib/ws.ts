@@ -1,7 +1,14 @@
-import { getToken } from "./auth";
+import { isAuthenticated } from "./auth";
 import type { WsMessage } from "../types";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8080";
+function getWsUrl(): string {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws`;
+}
 
 type MessageHandler = (msg: WsMessage) => void;
 
@@ -14,8 +21,7 @@ export class OrbitWebSocket {
   private candleSub: { symbol: string; interval: string } | null = null;
 
   connect() {
-    const token = getToken();
-    if (!token) return;
+    if (!isAuthenticated()) return;
 
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
@@ -28,8 +34,7 @@ export class OrbitWebSocket {
     }
 
     this.shouldReconnect = true;
-    const url = `${WS_URL}?token=${encodeURIComponent(token)}`;
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(getWsUrl());
 
     this.ws.onopen = () => {
       this.send({ type: "GET_BALANCE" });
