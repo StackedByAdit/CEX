@@ -112,15 +112,12 @@ export function initWS(port: number) {
             for (const subs of orderbookSubs.values()) {
                 subs.delete(ws);
             }
+            for (const subs of candleSubs.values()) {
+                subs.delete(ws);
+            }
             if (userId) {
                 userSockets.delete(userId);
             }
-
-            ws.on("close", () => {
-                for (const subs of orderbookSubs.values()) subs.delete(ws);
-                for (const subs of candleSubs.values()) subs.delete(ws);
-                if (userId) userSockets.delete(userId);
-            });
         });
     });
 
