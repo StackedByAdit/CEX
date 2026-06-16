@@ -115,20 +115,29 @@ function rollCandleToStart(
 }
 
 /** Advance in-memory candles when wall-clock crosses an interval boundary (even without trades). */
+let advancing = false;
+
 export async function advanceCandlesIfNeeded(now = Date.now()) {
-    for (const symbol of Object.keys(ORDERBOOK)) {
-        for (const interval of INTERVALS) {
-            const key = candleKey(symbol, interval);
-            const existing = CANDLES[key];
-            if (!existing) continue;
+    if (advancing) return;
 
-            const expectedStart = getCandleStart(now, interval);
-            if (existing.startTime >= expectedStart) continue;
+    advancing = true;
+    try {
+        for (const symbol of Object.keys(ORDERBOOK)) {
+            for (const interval of INTERVALS) {
+                const key = candleKey(symbol, interval);
+                const existing = CANDLES[key];
+                if (!existing) continue;
 
-            persistCandle(existing);
-            rollCandleToStart(symbol, interval, expectedStart, existing.close);
-            publishCandle(symbol, interval);
+                const expectedStart = getCandleStart(now, interval);
+                if (existing.startTime >= expectedStart) continue;
+
+                persistCandle(existing);
+                rollCandleToStart(symbol, interval, expectedStart, existing.close);
+                publishCandle(symbol, interval);
+            }
         }
+    } finally {
+        advancing = false;
     }
 }
 
