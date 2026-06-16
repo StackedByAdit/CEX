@@ -22,6 +22,12 @@ import { restoreOpenOrders } from "./utils/orderSync";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
 import { executeOrder, runWorker } from "./worker";
+import {
+    buildClearCookieHeader,
+    buildSetCookieHeader,
+    sessionCookieOptions,
+    SESSION_COOKIE_NAME,
+} from "./utils/sessionCookie";
 const PORT = 3000;
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -136,15 +142,32 @@ app.post("/login", async (req: Request, res: Response) => {
             JWT_SECRET,
         );
 
+        const cookieOptions = sessionCookieOptions();
+        res.setHeader(
+            "Set-Cookie",
+            buildSetCookieHeader(SESSION_COOKIE_NAME, token, cookieOptions),
+        );
+
         return res.status(200).json({
             message: "Login successful",
-            token
+            username: user.username,
+            token,
         });
 
     } catch (err) {
         console.log(err);
         return res.status(500).json({ message: "Internal server error" });
     }
+});
+
+app.post("/logout", (_req: Request, res: Response) => {
+    const cookieOptions = sessionCookieOptions();
+    res.setHeader(
+        "Set-Cookie",
+        buildClearCookieHeader(SESSION_COOKIE_NAME, cookieOptions),
+    );
+
+    return res.status(200).json({ message: "Logged out" });
 });
 
 app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => {

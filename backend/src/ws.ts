@@ -4,6 +4,7 @@ import { BALANCES, ORDERBOOK } from "./state";
 import { getCandleSnapshot } from "./utils/candle";
 import jwt from "jsonwebtoken";
 import { prisma } from "./prisma";
+import { getSessionTokenFromRequest } from "./utils/sessionCookie";
 
 type AliveWebSocket = WebSocket & { isAlive?: boolean };
 
@@ -21,7 +22,14 @@ export function initWS(port: number) {
 
     wss.on("connection", (ws, req) => {
         const url = new URL(req.url!, `ws://localhost:${port}`);
-        const token = url.searchParams.get("token");
+        const token = getSessionTokenFromRequest({
+            headers: {
+                authorization: url.searchParams.get("token")
+                    ? `Bearer ${url.searchParams.get("token")}`
+                    : undefined,
+                cookie: req.headers.cookie,
+            },
+        });
 
         let userId: string | null = null;
 

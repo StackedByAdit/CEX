@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import AuthLayout from "../components/auth/AuthLayout";
 import { ApiError, login } from "../lib/api";
@@ -11,14 +11,14 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
       const data = await login(username, password);
-      setAuth(data.token, username);
+      setAuth(data.username ?? username);
       navigate("/trade");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login failed");
