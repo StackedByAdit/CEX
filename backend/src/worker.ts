@@ -14,15 +14,15 @@ async function persistMatchResult(order: MemoryOrder, stockId: string, result: M
 
     await upsertOrder(order, stockId);
 
-    for (const fill of result.fillRecords) {
-        await prisma.fill.create({
-            data: {
+    if (result.fillRecords.length > 0) {
+        await prisma.fill.createMany({
+            data: result.fillRecords.map(fill => ({
                 stockId,
                 buyOrderId: fill.buyOrderId,
                 sellOrderId: fill.sellOrderId,
                 price: fill.price,
                 quantity: fill.quantity,
-            },
+            })),
         });
     }
 }
