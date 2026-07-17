@@ -27,11 +27,7 @@ async function persistMatchResult(order: MemoryOrder, stockId: string, result: M
     }
 }
 
-function postProcessOrder(order: MemoryOrder, stockId: string, result: MatchResult) {
-    void persistMatchResult(order, stockId, result).catch(err => {
-        console.error("DB sync error (persist match):", err);
-    });
-
+function publishMatchEvents(order: MemoryOrder, stockId: string, result: MatchResult) {
     publishOrderbook(order.symbol);
 
     for (const fill of result.fills) {
@@ -56,16 +52,17 @@ function postProcessOrder(order: MemoryOrder, stockId: string, result: MatchResu
     }
 }
 
-/** Match in-process and return immediately; persistence and WS fan-out run in the background. */
-export function executeOrder(order: MemoryOrder, stockId: string): MatchResult {
+/** Match in-process, persist to DB, then fan out WS events. */
+export async function executeOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
     ORDERS.push(order);
     const result = matchOrder(order, stockId);
-    postProcessOrder(order, stockId, result);
+    await persistMatchResult(order, stockId, result);
+    publishMatchEvents(order, stockId, result);
     return result;
 }
 
 async function processOrder(order: MemoryOrder, stockId: string) {
-    const result = executeOrder(order, stockId);
+    const result = await executeOrder(order, stockId);
     await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
     console.log("Result pushed for:", order.id);
 }

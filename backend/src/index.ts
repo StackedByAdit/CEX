@@ -296,7 +296,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         lockedQuoteAmount,
     };
 
-    const result = executeOrder(currOrder, stockId);
+    const result = await executeOrder(currOrder, stockId);
 
     return res.status(200).json({
         orderId,
@@ -338,7 +338,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             return res.status(400).json({ message: "Order cannot be cancelled" });
         }
 
-        order = {
+        const newOrder: MemoryOrder = {
             id: dbOrder.id,
             userId: dbOrder.userId,
             side: dbOrder.side,
@@ -350,15 +350,18 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             status: dbOrder.status,
         };
 
-        ORDERS.push(order);
+        ORDERS.push(newOrder);
 
-        const firm = ORDERBOOK[order.symbol] ?? { bids: {}, asks: {} };
-        ORDERBOOK[order.symbol] = firm;
-        const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
-        if (!bookSide[order.price]) bookSide[order.price] = [];
-        if (!bookSide[order.price]!.some((entry) => entry.id === order.id)) {
-            bookSide[order.price]!.push(order);
+        const firm = ORDERBOOK[newOrder.symbol] ?? { bids: {}, asks: {} };
+        ORDERBOOK[newOrder.symbol] = firm;
+        const bookSide = newOrder.side === "BUY" ? firm.bids : firm.asks;
+        if (newOrder.price !== undefined) {
+            if (!bookSide[newOrder.price]) bookSide[newOrder.price] = [];
+            if (!bookSide[newOrder.price]!.some((entry) => entry.id === newOrder.id)) {
+                bookSide[newOrder.price]!.push(newOrder);
+            }
         }
+        order = newOrder;
     }
 
     if (order.userId !== req.id) {

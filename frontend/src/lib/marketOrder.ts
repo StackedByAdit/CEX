@@ -37,6 +37,35 @@ export function estimateMarketBuyFromAsks(
   return { fillableQuantity, estimatedQuote, averagePrice };
 }
 
+export function maxMarketBuyQtyFromAsks(
+  asks: OrderbookLevel[],
+  inrAvailable: number,
+  fallbackPrice: number | null = null,
+): number {
+  let remainingInr = inrAvailable;
+  let quantity = 0;
+  let sawLiquidity = false;
+
+  for (const level of asks) {
+    if (remainingInr <= 0) break;
+    if (level.amount <= 0) continue;
+
+    sawLiquidity = true;
+    const affordableQty = remainingInr / level.price;
+    const take = Math.min(level.amount, affordableQty);
+    if (take <= 0) break;
+
+    quantity += take;
+    remainingInr -= take * level.price;
+  }
+
+  if (!sawLiquidity && fallbackPrice && fallbackPrice > 0) {
+    return roundQty(inrAvailable / fallbackPrice);
+  }
+
+  return roundQty(quantity);
+}
+
 export function estimateMarketSellFromBids(
   bids: OrderbookLevel[],
   quantity: number,
