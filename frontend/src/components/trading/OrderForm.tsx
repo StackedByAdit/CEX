@@ -190,8 +190,8 @@ export default function OrderForm({
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex flex-1 flex-col p-4">
-        <div className="mb-4 flex gap-1">
+      <form onSubmit={handleSubmit} className="flex flex-1 flex-col p-3">
+        <div className="mb-2.5 flex gap-1">
           {(["LIMIT", "MARKET"] as OrderType[]).map((t) => (
             <button
               key={t}
@@ -218,7 +218,7 @@ export default function OrderForm({
         )}
 
         {orderType === "MARKET" && marketEstimate && marketEstimate.averagePrice > 0 && (
-          <div className="mb-3 rounded bg-orbit-elevated px-3 py-2.5 text-xs text-orbit-secondary">
+          <div className="mb-2 rounded bg-orbit-elevated px-3 py-2 text-xs text-orbit-secondary">
             Est. avg price{" "}
             <span className="tabular-nums text-white">
               {marketEstimate.averagePrice.toLocaleString("en-IN", {
@@ -237,7 +237,7 @@ export default function OrderForm({
           placeholder="0.0000"
         />
 
-        <div className="mb-4">
+        <div className="mb-2.5">
           <div className="mb-1 text-[10px] uppercase tracking-wider text-orbit-muted">
             {orderType === "MARKET"
               ? side === "BUY"
@@ -245,19 +245,19 @@ export default function OrderForm({
                 : "Est. proceeds (INR)"
               : "Total (INR)"}
           </div>
-          <div className="rounded bg-orbit-elevated px-3 py-2.5 text-sm tabular-nums text-orbit-secondary">
+          <div className="rounded bg-orbit-elevated px-3 py-2 text-sm tabular-nums text-orbit-secondary">
             {total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
 
         {showPartialLiquidityWarning && (
-          <div className="mb-3 rounded border border-orbit-border px-3 py-2 text-xs text-orbit-secondary">
+          <div className="mb-2 rounded border border-orbit-border px-3 py-2 text-xs text-orbit-secondary">
             Only {marketEstimate!.fillableQuantity.toLocaleString("en-IN", { maximumFractionDigits: 4 })}{" "}
             {symbol} available at market. Unfilled size is cancelled after execution.
           </div>
         )}
 
-        <div className="mb-4 grid grid-cols-4 gap-1">
+        <div className="mb-2.5 grid grid-cols-4 gap-1">
           {PERCENTAGES.map((pct) => (
             <button
               key={pct}
@@ -271,17 +271,17 @@ export default function OrderForm({
         </div>
 
         {error && (
-          <div className="mb-3 rounded border border-orbit-red/30 bg-orbit-red/10 px-3 py-2 text-xs text-orbit-red">
+          <div className="mb-2 rounded border border-orbit-red/30 bg-orbit-red/10 px-3 py-1.5 text-xs text-orbit-red">
             {error}
           </div>
         )}
         {success && (
-          <div className="mb-3 rounded border border-orbit-green/30 bg-orbit-green/10 px-3 py-2 text-xs text-orbit-green">
+          <div className="mb-2 rounded border border-orbit-green/30 bg-orbit-green/10 px-3 py-1.5 text-xs text-orbit-green">
             {success}
           </div>
         )}
 
-        <div className="mt-auto space-y-3 border-t border-orbit-border pt-4">
+        <div className="mt-auto space-y-2.5 border-t border-orbit-border pt-3">
           <div className="flex justify-between text-xs">
             <span className="text-orbit-muted">Available</span>
             <span className="tabular-nums text-orbit-secondary">
@@ -298,7 +298,7 @@ export default function OrderForm({
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded bg-white py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded bg-white py-2 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loading
               ? "Placing..."
@@ -322,7 +322,7 @@ function Field({
   placeholder: string;
 }) {
   return (
-    <div className="mb-3">
+    <div className="mb-2">
       <label className="mb-1 block text-[10px] uppercase tracking-wider text-orbit-muted">
         {label}
       </label>
@@ -332,7 +332,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded bg-orbit-elevated px-3 py-2.5 text-sm tabular-nums outline-none ring-white/20 transition focus:ring-2"
+        className="w-full rounded bg-orbit-elevated px-3 py-2 text-sm tabular-nums outline-none ring-white/20 transition focus:ring-2"
       />
     </div>
   );

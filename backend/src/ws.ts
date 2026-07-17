@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { subscriber } from "./redis";
 import { BALANCES, ORDERBOOK } from "./state";
 import { getCandleSnapshot } from "./utils/candle";
+import type { Interval } from "./utils/candle";
 import jwt from "jsonwebtoken";
 import { prisma } from "./prisma";
 import { getSessionTokenFromRequest } from "./utils/sessionCookie";
@@ -88,12 +89,14 @@ export function initWS(port: number) {
                 if (msg.type === "SUBSCRIBE_CANDLE") {
                     const symbol = msg.symbol as string;
                     const interval = msg.interval as string;
+                    // Always key by the requested interval so the client can subscribe to any interval.
+                    // Live updates arrive as 1m and the client aggregates; snapshot is served via HTTP.
                     const key = `${symbol}:${interval}`;
 
                     if (!candleSubs.has(key)) candleSubs.set(key, new Set());
                     candleSubs.get(key)!.add(ws);
 
-                    void getCandleSnapshot(symbol, interval as import("./utils/candle").Interval).then((snapshot) => {
+                    void getCandleSnapshot(symbol, interval as Interval).then((snapshot) => {
                         if (ws.readyState !== WebSocket.OPEN) return;
 
                         ws.send(JSON.stringify({
@@ -163,14 +166,22 @@ export function initWS(port: number) {
             }
         }
 
+        // Only 1m candle updates are published; clients subscribed to any interval receive them
+        // and use the startTime to determine if their bucket needs updating.
         if (channel.startsWith("candle:")) {
-            const [, symbol, interval] = channel.split(":");
-            const subs = candleSubs.get(`${symbol}:${interval}`);
-            if (!subs) return;
-            const payload = JSON.stringify({ type: "CANDLE_UPDATE", ...JSON.parse(message) });
-            for (const client of subs) {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(payload);
+            const parts = channel.split(":");
+            const symbol = parts[1]!;
+            // parts[2] is always "1m"
+            const raw = JSON.parse(message);
+            const payload1m = JSON.stringify({ type: "CANDLE_UPDATE", ...raw });
+
+            // Broadcast 1m update to all candle subscribers for this symbol (any interval).
+            for (const [key, subs] of candleSubs.entries()) {
+                if (!key.startsWith(`${symbol}:`)) continue;
+                for (const client of subs) {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(payload1m);
+                    }
                 }
             }
         }
@@ -190,9 +201,8 @@ export function initWS(port: number) {
         const symbols = stocks.map(s => s.symbol);
         const orderbookChannels = symbols.map(s => `orderbook:${s}`);
         const tradeChannels = symbols.map(s => `trades:${s}`);
-        const candleChannels = symbols.flatMap(s =>
-            ["1m", "5m", "15m", "1h", "4h", "1d"].map(i => `candle:${s}:${i}`)
-        );
+        // Only subscribe to 1m candle channels; derived intervals are computed from these.
+        const candleChannels = symbols.map(s => `candle:${s}:1m`);
 
         await subscriber.subscribe(...orderbookChannels, ...tradeChannels, ...candleChannels, "balance:update");
         console.log("Subscribed to:", [...orderbookChannels, ...tradeChannels]);

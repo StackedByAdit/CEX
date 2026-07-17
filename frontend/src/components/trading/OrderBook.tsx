@@ -77,10 +77,10 @@ function BookRow({
         className="absolute inset-y-0 right-0"
         style={{
           width: `${depth}%`,
-          background: isAsk ? "rgba(239, 68, 68, 0.08)" : "rgba(255, 255, 255, 0.06)",
+          background: isAsk ? "rgba(239, 68, 68, 0.08)" : "rgba(34, 197, 94, 0.08)",
         }}
       />
-      <span className={`relative z-10 ${isAsk ? "text-orbit-red/80" : "text-white/90"}`}>
+      <span className={`relative z-10 ${isAsk ? "text-orbit-red" : "text-orbit-green"}`}>
         {formatNum(level.price)}
       </span>
       <span className="relative z-10 text-right text-orbit-secondary">

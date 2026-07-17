@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Balance, Fill, Order, Stock } from "../../types";
 import { cancelOrder, ApiError } from "../../lib/api";
 
-type Tab = "open" | "history" | "trades" | "funds";
+type Tab = "open" | "fulfilled" | "history" | "trades" | "funds";
 
 interface OrdersPanelProps {
   orders: Order[];
@@ -45,6 +45,7 @@ export default function OrdersPanel({
       o.type === "LIMIT" &&
       (o.status === "PENDING" || o.status === "PARTIALLY_FILLED"),
   );
+  const fulfilledOrders = orders.filter((o) => o.status === "FILLED");
   const historyOrders = orders.filter(
     (o) => o.status === "FILLED" || o.status === "CANCELLED",
   );
@@ -65,6 +66,7 @@ export default function OrdersPanel({
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "open", label: "Open Orders" },
+    { id: "fulfilled", label: "Fulfilled Orders" },
     { id: "history", label: "Order History" },
     { id: "trades", label: "Trade History" },
     { id: "funds", label: "Funds" },
@@ -104,6 +106,7 @@ export default function OrdersPanel({
             stocks={stocks}
           />
         )}
+        {tab === "fulfilled" && <OrdersTable orders={fulfilledOrders} stocks={stocks} />}
         {tab === "history" && <OrdersTable orders={historyOrders} stocks={stocks} />}
         {tab === "trades" && <TradesTable trades={trades} />}
         {tab === "funds" && <FundsTable balances={balances} stocks={stocks} />}
@@ -194,18 +197,34 @@ function TradesTable({ trades }: { trades: Fill[] }) {
       <thead className="sticky top-0 bg-orbit-panel text-[10px] uppercase tracking-wider text-orbit-muted">
         <tr className="border-b border-orbit-border">
           <th className="px-3 py-2 text-left font-medium">Time</th>
+          <th className="px-3 py-2 text-left font-medium">Pair</th>
+          <th className="px-3 py-2 text-left font-medium">Side</th>
           <th className="px-3 py-2 text-right font-medium">Price</th>
           <th className="px-3 py-2 text-right font-medium">Quantity</th>
+          <th className="px-3 py-2 text-right font-medium">Total</th>
         </tr>
       </thead>
       <tbody>
-        {trades.map((t) => (
-          <tr key={t.id} className="border-b border-orbit-border/50 hover:bg-orbit-elevated/30">
-            <td className="px-3 py-2 text-orbit-secondary">{formatTime(t.createdAt)}</td>
-            <td className="px-3 py-2 text-right tabular-nums">{toNum(t.price).toFixed(2)}</td>
-            <td className="px-3 py-2 text-right tabular-nums">{toNum(t.quantity).toFixed(4)}</td>
-          </tr>
-        ))}
+        {trades.map((t) => {
+          const side = t.side ?? "BUY";
+          const symbol = t.symbol ?? "—";
+          const price = toNum(t.price);
+          const qty = toNum(t.quantity);
+          const total = price * qty;
+
+          return (
+            <tr key={t.id} className="border-b border-orbit-border/50 hover:bg-orbit-elevated/30">
+              <td className="px-3 py-2 text-orbit-secondary">{formatTime(t.createdAt)}</td>
+              <td className="px-3 py-2">{symbol}/INR</td>
+              <td className={`px-3 py-2 font-medium ${side === "BUY" ? "text-orbit-green" : "text-orbit-red"}`}>
+                {side}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{price.toFixed(2)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{qty.toFixed(4)}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{total.toFixed(2)}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

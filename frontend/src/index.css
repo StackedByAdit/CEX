@@ -19,10 +19,10 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
@@ -30,6 +30,10 @@ body {
   background: var(--color-orbit-bg);
   color: #ffffff;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
 }
 
 ::-webkit-scrollbar {

@@ -1,9 +1,6 @@
 export type OrderSide = "BUY" | "SELL";
 export type OrderType = "LIMIT" | "MARKET";
 export type OrderStatus = "PENDING" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED";
-export type CandleInterval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
-
-export const CANDLE_INTERVALS: CandleInterval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
 export interface Stock {
   id: string;
@@ -39,17 +36,11 @@ export interface Fill {
   price: string | number;
   quantity: string | number;
   createdAt: string;
-}
-
-export interface Candle {
-  symbol: string;
-  interval: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  startTime: number | string;
+  stock?: Stock;
+  buyOrder?: Order;
+  sellOrder?: Order;
+  side?: "BUY" | "SELL";
+  symbol?: string;
 }
 
 export interface OrderbookLevel {
@@ -88,13 +79,16 @@ export type WsMessage =
   | { type: "BALANCE_SNAPSHOT"; balances: Record<string, Balance> }
   | { type: "BALANCE_UPDATE"; balances: Record<string, Balance> }
   | {
-      type: "CANDLE_SNAPSHOT";
+      type: "CANDLE_UPDATE";
       symbol: string;
       interval: string;
-      candles: Candle[];
-      current: Candle | null;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volume: number;
+      startTime: number;
     }
-  | { type: "CANDLE_UPDATE"; symbol: string; interval: string; open: number; high: number; low: number; close: number; volume: number; startTime: number }
   | { type: "ERROR"; message: string };
 
 export interface MemoryOrder {

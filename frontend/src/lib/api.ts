@@ -1,8 +1,6 @@
 import { clearAuth } from "./auth";
 import type {
   Balance,
-  Candle,
-  CandleInterval,
   Fill,
   Order,
   PlaceOrderPayload,
@@ -82,6 +80,11 @@ export async function fetchTrades(symbol: string) {
   return data.fills;
 }
 
+export async function fetchPersonalTrades() {
+  const data = await request<{ fills: Fill[] }>("/trades/personal");
+  return data.fills;
+}
+
 export async function fetchTicker(symbol: string) {
   return request<{
     price: number | null;
@@ -92,10 +95,43 @@ export async function fetchTicker(symbol: string) {
   }>(`/ticker/${encodeURIComponent(symbol)}`);
 }
 
-export async function fetchCandles(symbol: string, interval: CandleInterval) {
-  return request<{ candles: Candle[]; current: Candle | null }>(
-    `/candles/${encodeURIComponent(symbol)}/${encodeURIComponent(interval)}`,
-  );
+export interface CandleBar {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export async function fetchCandles(symbol: string, interval: string): Promise<CandleBar[]> {
+  const data = await request<{
+    candles: { open: number; high: number; low: number; close: number; volume: number; startTime: number }[];
+    current: { open: number; high: number; low: number; close: number; volume: number; startTime: number } | null;
+  }>(`/candles/${encodeURIComponent(symbol)}/${encodeURIComponent(interval)}`);
+
+  const bars: CandleBar[] = data.candles.map((c) => ({
+    timestamp: typeof c.startTime === "number" && c.startTime < 1_000_000_000_000
+      ? c.startTime * 1000
+      : c.startTime,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume,
+  }));
+
+  if (data.current) {
+    const c = data.current;
+    const ts = typeof c.startTime === "number" && c.startTime < 1_000_000_000_000
+      ? c.startTime * 1000
+      : c.startTime;
+    if (!bars.some((b) => b.timestamp === ts)) {
+      bars.push({ timestamp: ts, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume });
+    }
+  }
+
+  return bars.sort((a, b) => a.timestamp - b.timestamp);
 }
 
 export async function placeOrder(payload: PlaceOrderPayload) {

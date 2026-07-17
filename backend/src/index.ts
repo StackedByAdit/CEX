@@ -509,6 +509,48 @@ app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) =>
     return res.json({ balances });
 });
 
+app.get("/trades/personal", authMiddleware, async (req: CustomRequest, res: Response) => {
+    try {
+        const userId = req.id!;
+        const fills = await prisma.fill.findMany({
+            where: {
+                OR: [
+                    { buyOrder: { userId } },
+                    { sellOrder: { userId } }
+                ]
+            },
+            include: {
+                stock: true,
+                buyOrder: true,
+                sellOrder: true
+            },
+            orderBy: {
+                createdAt: "desc"
+            }
+        });
+
+        const mappedFills = fills.map(fill => {
+            const side = fill.buyOrder.userId === userId ? "BUY" : "SELL";
+            return {
+                id: fill.id,
+                stockId: fill.stockId,
+                buyOrderId: fill.buyOrderId,
+                sellOrderId: fill.sellOrderId,
+                price: fill.price,
+                quantity: fill.quantity,
+                createdAt: fill.createdAt,
+                side,
+                symbol: fill.stock.symbol
+            };
+        });
+
+        return res.json({ fills: mappedFills });
+    } catch (err) {
+        console.error("Failed to fetch personal trades:", err);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+});
+
 app.get("/trades/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
     const fills = await prisma.fill.findMany({
         where: { stock: { symbol: req.params.symbol as string } },
@@ -546,7 +588,12 @@ app.get("/candles/:symbol/:interval", authMiddleware, async (req: CustomRequest,
     const symbol = req.params.symbol as string;
     const interval = req.params.interval as string;
 
-    const snapshot = await getCandleSnapshot(symbol, interval as import("./utils/candle").Interval);
+    const valid = ["1m", "15m", "1h", "4h", "1d"] as const;
+    type ValidInterval = typeof valid[number];
+    if (!valid.includes(interval as ValidInterval)) {
+        return res.status(400).json({ message: "Invalid interval" });
+    }
+    const snapshot = await getCandleSnapshot(symbol, interval as ValidInterval);
 
     return res.json(snapshot);
 });
