@@ -249,6 +249,7 @@ export default function TradePage() {
         if (tradeRefreshTimer.current) clearTimeout(tradeRefreshTimer.current);
         tradeRefreshTimer.current = setTimeout(() => {
           refreshTrades(symbol);
+          refreshOrders();
         }, 100);
 
         if (tickerRefreshTimer.current) clearTimeout(tickerRefreshTimer.current);
@@ -313,34 +314,19 @@ export default function TradePage() {
       if (tradeRefreshTimer.current) clearTimeout(tradeRefreshTimer.current);
       if (tickerRefreshTimer.current) clearTimeout(tickerRefreshTimer.current);
     };
-  }, [symbol, candleInterval, refreshTrades, loadTicker]);
+  }, [symbol, candleInterval, refreshTrades, refreshOrders, loadTicker]);
 
   const handleOrderPlaced = useCallback(
     (
-      result: PlaceOrderResponse,
+      _result: PlaceOrderResponse,
       meta: { symbol: string; side: OrderSide; type: OrderType; quantity: number; price?: number },
     ) => {
-      const stock = stocks.find((s) => s.symbol === meta.symbol);
-      const now = new Date().toISOString();
-
-      setOrders((prev) => [
-        {
-          id: result.orderId,
-          userId: "",
-          stockId: stock?.id ?? "",
-          side: meta.side,
-          type: meta.type,
-          status: result.status,
-          price: meta.type === "LIMIT" ? (meta.price ?? null) : null,
-          quantity: meta.quantity,
-          filledQuantity: result.filledQuantity,
-          createdAt: now,
-          updatedAt: now,
-        },
-        ...prev,
-      ]);
+      void refreshOrders();
+      void refreshTrades(meta.symbol);
+      void refreshBalances();
+      void loadOrderbook(meta.symbol);
     },
-    [stocks],
+    [refreshOrders, refreshTrades, refreshBalances, loadOrderbook],
   );
 
   return (
@@ -406,6 +392,7 @@ export default function TradePage() {
               stocks={stocks}
               onRefresh={() => {
                 refreshOrders();
+                refreshTrades(symbol);
                 refreshBalances();
                 loadOrderbook(symbol);
               }}

@@ -139,4 +139,39 @@ describe("matchOrder market refunds", () => {
         expect(BALANCES.seller!.SOL!.available).toBe(1);
         expect(BALANCES.seller!.INR!.available).toBe(result.actualQuote);
     });
+
+    test("limit buy fully fills resting limit sell", () => {
+        ORDERBOOK.SOL = {
+            asks: {
+                102: [makeOrder({ id: "ask-1", userId: "seller-1", side: "SELL", symbol: "SOL", price: 102, quantity: 111 })],
+            },
+            bids: {},
+        };
+        BALANCES.buyer = {
+            INR: { available: 0, locked: 12000, balanceId: "inr-buyer" },
+            SOL: { available: 0, locked: 0, balanceId: "sol-buyer" },
+        };
+        BALANCES["seller-1"] = {
+            INR: { available: 0, locked: 0, balanceId: "inr-s1" },
+            SOL: { available: 0, locked: 111, balanceId: "sol-s1" },
+        };
+
+        const sellOrder = ORDERBOOK.SOL.asks[102]![0]!;
+        const buyOrder = makeOrder({
+            id: "buy-1",
+            userId: "buyer",
+            side: "BUY",
+            symbol: "SOL",
+            price: 111,
+            quantity: 111,
+        });
+
+        const result = matchOrder(buyOrder, "stock-id");
+
+        expect(result.status).toBe("FILLED");
+        expect(result.filledQuantity).toBe(111);
+        expect(sellOrder.status).toBe("FILLED");
+        expect(sellOrder.filledQuantity).toBe(111);
+        expect(ORDERBOOK.SOL.asks[102]).toBeUndefined();
+    });
 });

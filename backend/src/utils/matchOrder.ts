@@ -71,8 +71,8 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 );
                 trackCounterParty(counterPartyOrders, counterPartyUserIds, sellOrder);
 
-                order.filledQuantity += tradeQty;
-                sellOrder.filledQuantity += tradeQty;
+                order.filledQuantity = roundQty(order.filledQuantity + tradeQty);
+                sellOrder.filledQuantity = roundQty(sellOrder.filledQuantity + tradeQty);
 
                 const tradeQuote = roundInr(tradeQty * price);
                 const sellerStock = getBalance(sellOrder.userId, order.symbol);
@@ -145,8 +145,8 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
 
                 trackCounterParty(counterPartyOrders, counterPartyUserIds, buyOrder);
 
-                order.filledQuantity += tradeQty;
-                buyOrder.filledQuantity += tradeQty;
+                order.filledQuantity = roundQty(order.filledQuantity + tradeQty);
+                buyOrder.filledQuantity = roundQty(buyOrder.filledQuantity + tradeQty);
 
                 const tradeQuote = roundInr(tradeQty * price);
                 const buyerStock = getBalance(buyOrder.userId, order.symbol);

@@ -15,6 +15,15 @@ export function syncOrderStatus(order: MemoryOrder) {
 export async function upsertOrder(order: MemoryOrder, stockId: string) {
     syncOrderStatus(order);
 
+    const existing = await prisma.order.findUnique({
+        where: { id: order.id },
+        select: { filledQuantity: true },
+    });
+
+    if (existing && order.filledQuantity < existing.filledQuantity.toNumber()) {
+        return;
+    }
+
     await prisma.order.upsert({
         where: { id: order.id },
         create: {
@@ -66,9 +75,11 @@ export async function restoreOpenOrders() {
         if (!firm) continue;
 
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
-        if (!bookSide[order.price]) bookSide[order.price] = [];
-        if (!bookSide[order.price]!.some((entry) => entry.id === order.id)) {
-            bookSide[order.price]!.push(order);
+        if (order.price !== undefined) {
+            if (!bookSide[order.price]) bookSide[order.price] = [];
+            if (!bookSide[order.price]!.some((entry) => entry.id === order.id)) {
+                bookSide[order.price]!.push(order);
+            }
         }
     }
 }

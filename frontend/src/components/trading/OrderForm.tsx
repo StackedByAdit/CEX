@@ -4,6 +4,7 @@ import { ApiError, placeOrder } from "../../lib/api";
 import {
   estimateMarketBuyFromAsks,
   estimateMarketSellFromBids,
+  maxMarketBuyQtyFromAsks,
 } from "../../lib/marketOrder";
 import { toPrice } from "../../lib/format";
 
@@ -60,13 +61,9 @@ export default function OrderForm({
   function applyPercentage(pct: number) {
     if (side === "BUY") {
       if (orderType === "MARKET") {
-        const marketPrice = asks.find((level) => level.amount > 0)?.price ?? toPrice(lastPrice) ?? 0;
-        if (marketPrice <= 0) return;
+        const maxQty = maxMarketBuyQtyFromAsks(asks, inrAvailable, toPrice(lastPrice));
+        if (maxQty <= 0) return;
 
-        const maxQty = Math.min(
-          asks.reduce((sum, level) => sum + (level.amount > 0 ? level.amount : 0), 0),
-          inrAvailable / marketPrice,
-        );
         setQuantity(((maxQty * pct) / 100).toFixed(4));
         return;
       }
