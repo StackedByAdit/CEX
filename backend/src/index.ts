@@ -22,6 +22,7 @@ import { restoreOpenOrders } from "./utils/orderSync";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
 import { executeOrder, runWorker } from "./worker";
+import { queueBalanceUpdate, queueOrderUpsert } from "./utils/dbBuffer";
 import {
     buildClearCookieHeader,
     buildSetCookieHeader,
@@ -222,13 +223,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
             inrBalance.available -= amount;
             inrBalance.locked += amount;
 
-            prisma.balance.update({
-                where: { id: inrBalance.balanceId },
-                data: {
-                    available: { decrement: amount },
-                    locked: { increment: amount }
-                }
-            }).catch(err => console.error("DB sync error (buy lock):", err));
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
         }
 
         if (type === "MARKET") {
@@ -247,13 +242,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
             inrBalance.available -= lockedQuoteAmount;
             inrBalance.locked += lockedQuoteAmount;
 
-            prisma.balance.update({
-                where: { id: inrBalance.balanceId },
-                data: {
-                    available: { decrement: lockedQuoteAmount },
-                    locked: { increment: lockedQuoteAmount }
-                }
-            }).catch(err => console.error("DB sync error (market buy lock):", err));
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
         }
 
     } else {
@@ -272,13 +261,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         stockBalance.available -= orderQuantity;
         stockBalance.locked += orderQuantity;
 
-        prisma.balance.update({
-            where: { id: stockBalance.balanceId },
-            data: {
-                available: { decrement: orderQuantity },
-                locked: { increment: orderQuantity }
-            }
-        }).catch(err => console.error("DB sync error (sell lock):", err));
+        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
     }
 
     const orderId = crypto.randomUUID();
@@ -401,15 +384,8 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 
     order.status = "CANCELLED";
 
-    try {
-        await prisma.order.update({
-            where: { id: orderId },
-            data: { status: "CANCELLED" },
-        });
-    } catch (err) {
-        console.error("DB sync error (cancel order):", err);
-        return res.status(500).json({ message: "Failed to cancel order" });
-    }
+    const stockId = STOCK_BY_SYMBOL[order.symbol]!.id;
+    queueOrderUpsert(order, stockId);
 
     const price = order.price;
     const quantity = roundQty(order.quantity - order.filledQuantity);
@@ -420,13 +396,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
         inrBalance.available += price * quantity;
         inrBalance.locked -= price * quantity;
 
-        prisma.balance.update({
-            where: { id: inrBalance.balanceId },
-            data: {
-                available: { increment: price * quantity },
-                locked: { decrement: price * quantity }
-            }
-        }).catch(err => console.error("DB sync error (cancel buy refund):", err));
+        queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
 
     } else {
         const stockBalance = await assureBalance(order.userId, order.symbol);
@@ -434,13 +404,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
         stockBalance.available += quantity;
         stockBalance.locked -= quantity;
 
-        prisma.balance.update({
-            where: { id: stockBalance.balanceId },
-            data: {
-                available: { increment: quantity },
-                locked: { decrement: quantity }
-            }
-        }).catch(err => console.error("DB sync error (cancel sell refund):", err));
+        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
     }
 
     publishOrderbook(order.symbol);

@@ -229,7 +229,9 @@ export async function advanceCandlesIfNeeded(now = Date.now()) {
 }
 
 export async function processTrade(symbol: string, price: number, quantity: number, timestamp: number) {
-    await advanceCandlesIfNeeded(timestamp);
+    advanceCandlesIfNeeded(timestamp).catch(err => {
+        console.error("Candle advance error in processTrade:", err);
+    });
 
     const key = candleKey(symbol);
     const startTime = getCandleStart(timestamp, INTERVAL_1M_MS);
@@ -245,6 +247,52 @@ export async function processTrade(symbol: string, price: number, quantity: numb
         existing.low = Math.min(existing.low, price);
         existing.close = price;
         existing.volume += quantity;
+    }
+
+    publish1mCandle(symbol);
+}
+
+export async function processTradesBatch(
+    symbol: string,
+    fills: { price: number; quantity: number }[],
+    timestamp: number
+) {
+    if (fills.length === 0) return;
+
+    advanceCandlesIfNeeded(timestamp).catch(err => {
+        console.error("Candle advance error in processTradesBatch:", err);
+    });
+
+    const key = candleKey(symbol);
+    const startTime = getCandleStart(timestamp, INTERVAL_1M_MS);
+    const existing = CANDLES[key];
+
+    const prices = fills.map(f => f.price);
+    const batchHigh = Math.max(...prices);
+    const batchLow = Math.min(...prices);
+    const batchClose = fills[fills.length - 1]!.price;
+    const batchVolume = fills.reduce((sum, f) => sum + f.quantity, 0);
+
+    if (!existing || existing.startTime !== startTime) {
+        if (existing) {
+            persist1mCandle(existing);
+        }
+        const batchOpen = fills[0]!.price;
+        CANDLES[key] = {
+            symbol,
+            interval: "1m",
+            open: batchOpen,
+            high: batchHigh,
+            low: batchLow,
+            close: batchClose,
+            volume: batchVolume,
+            startTime,
+        };
+    } else {
+        existing.high = Math.max(existing.high, batchHigh);
+        existing.low = Math.min(existing.low, batchLow);
+        existing.close = batchClose;
+        existing.volume += batchVolume;
     }
 
     publish1mCandle(symbol);

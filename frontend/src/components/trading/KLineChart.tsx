@@ -27,6 +27,44 @@ const INTERVAL_MS: Record<PeriodInterval, number> = {
   "1d": 86_400_000,
 };
 
+function applyYAxisConfig(chart: Chart) {
+  chart.overrideYAxis({
+    paneId: "candle_pane", // Target ONLY the main candle chart pane's Y-axis
+    scrollZoomEnabled: false, // Disable Y-axis zooming via scroll wheel/trackpad on the main chart
+    gap: {
+      top: 0.15, // 15% top padding to prevent candles from touching the top edge
+      bottom: 0.15, // 15% bottom padding to prevent candles from touching the bottom edge
+    },
+    createRange: (params) => {
+      const { defaultRange } = params;
+      let from = defaultRange.realFrom;
+      let to = defaultRange.realTo;
+      const diff = to - from;
+
+      // Calculate a minimum span of 2% of the price to prevent extreme vertical stretching on flat periods
+      const center = (from + to) / 2;
+      const minSpan = Math.max(0.0001, center * 0.02); // 2% of the average price
+
+      if (diff < minSpan) {
+        from = center - minSpan / 2;
+        to = center + minSpan / 2;
+      }
+
+      return {
+        from,
+        to,
+        range: to - from,
+        realFrom: from,
+        realTo: to,
+        realRange: to - from,
+        displayFrom: from,
+        displayTo: to,
+        displayRange: to - from,
+      };
+    },
+  });
+}
+
 export default function KLineChart({ symbol }: KLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -46,6 +84,11 @@ export default function KLineChart({ symbol }: KLineChartProps) {
 
     const chart = init(el, {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      layout: {
+        yAxis: {
+          scrollZoomEnabled: false,
+        },
+      },
       styles: {
         grid: {
           show: true,
@@ -223,6 +266,8 @@ export default function KLineChart({ symbol }: KLineChartProps) {
     chart.setSymbol({ ticker: symbol });
     chart.setPeriod({ type: initial.type, span: initial.span });
 
+    applyYAxisConfig(chart);
+
     // Forward live 1m candle pushes from WS into the subscribeBar callback,
     // bucketing to the currently active period so derived intervals update too.
     const unsub = orbitWs.subscribe((msg: WsMessage) => {
@@ -265,6 +310,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
     const chart = chartRef.current;
     if (!chart) return;
     chart.setSymbol({ ticker: symbol });
+    applyYAxisConfig(chart);
   }, [symbol]);
 
   function handlePeriodChange(interval: PeriodInterval) {
@@ -274,6 +320,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
     setActivePeriod(interval);
     const period = PERIODS.find((p) => p.interval === interval) ?? PERIODS[1]!;
     chart.setPeriod({ type: period.type, span: period.span });
+    applyYAxisConfig(chart);
   }
 
   return (
