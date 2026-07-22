@@ -72,6 +72,19 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   const periodRef = useRef<PeriodInterval>("15m");
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
   const [activePeriod, setActivePeriod] = useState<PeriodInterval>("15m");
+  const [pillStyle, setPillStyle] = useState({ left: 3, width: 44 });
+  const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    const activeIndex = PERIODS.findIndex((p) => p.interval === activePeriod);
+    const tab = tabsRef.current[activeIndex];
+    if (tab) {
+      setPillStyle({
+        left: tab.offsetLeft,
+        width: tab.offsetWidth,
+      });
+    }
+  }, [activePeriod]);
 
   useEffect(() => {
     symbolRef.current = symbol;
@@ -324,39 +337,58 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "#121212" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid #262626", padding: "6px 12px", flexShrink: 0 }}>
-        {PERIODS.map((p) => (
-          <button
-            key={p.interval}
-            type="button"
-            onClick={() => handlePeriodChange(p.interval)}
+    <div className="flex flex-col h-full min-h-0 bg-transparent glass-panel rounded border border-white/5">
+      <div className="flex items-center gap-1 border-b border-white/5 p-2 shrink-0 bg-black/20">
+        <div style={{ position: "relative", background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: 3, display: "flex", gap: 2 }}>
+          <span
             style={{
-              position: "relative",
-              padding: "4px 10px",
-              fontSize: 11,
-              fontWeight: 500,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              border: "none",
-              borderRadius: 4,
-              cursor: "pointer",
-              transition: "background 0.15s, color 0.15s",
-              background: activePeriod === p.interval ? "#ffffff" : "transparent",
-              color: activePeriod === p.interval ? "#000000" : "#888888",
+              position: "absolute",
+              top: 3,
+              bottom: 3,
+              left: pillStyle.left,
+              width: pillStyle.width,
+              background: "rgba(255,255,255,0.12)",
+              borderRadius: 6,
+              transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)",
+              zIndex: 0,
             }}
-          >
-            {p.label}
-            {activePeriod === p.interval && (
-              <span style={{ position: "absolute", left: 4, right: 4, bottom: -9, height: 2, borderRadius: 1, background: "#ffffff" }} />
-            )}
-          </button>
-        ))}
+          />
+          {PERIODS.map((p, idx) => (
+            <button
+              key={p.interval}
+              ref={(el) => { tabsRef.current[idx] = el; }}
+              type="button"
+              onClick={() => handlePeriodChange(p.interval)}
+              style={{
+                position: "relative",
+                zIndex: 1,
+                padding: "4px 12px",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.08em",
+                borderRadius: 6,
+                transition: "all 0.25s cubic-bezier(0.4,0,0.2,1)",
+                color: activePeriod === p.interval ? "#ffffff" : "#666666",
+                cursor: "pointer",
+                background: "transparent",
+                border: "none",
+              }}
+              onMouseEnter={(e) => {
+                if (activePeriod !== p.interval) e.currentTarget.style.color = "#aaaaaa";
+              }}
+              onMouseLeave={(e) => {
+                if (activePeriod !== p.interval) e.currentTarget.style.color = "#666666";
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div
         ref={containerRef}
-        style={{ flex: 1, minHeight: 0, width: "100%" }}
+        style={{ flex: 1, minHeight: 0, width: "100%", background: "transparent" }}
       />
     </div>
   );

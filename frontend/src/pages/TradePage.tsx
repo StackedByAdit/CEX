@@ -7,6 +7,8 @@ import OrderBook from "../components/trading/OrderBook";
 import OrderForm from "../components/trading/OrderForm";
 import OrdersPanel from "../components/trading/OrdersPanel";
 import TickerBar from "../components/trading/TickerBar";
+import HistoryView from "../components/history/HistoryView";
+import WalletView from "../components/wallet/WalletView";
 import {
   fetchBalances,
   fetchOrderbook,
@@ -52,6 +54,7 @@ function buildLevels(
 }
 
 export default function TradePage() {
+  const [activeTab, setActiveTab] = useState<"spot" | "wallet" | "history">("spot");
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [symbol, setSymbol] = useState("AXIS");
   const [asks, setAsks] = useState<OrderbookLevel[]>([]);
@@ -68,7 +71,9 @@ export default function TradePage() {
   const tickerRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const symbolRef = useRef(symbol);
-  useEffect(() => { symbolRef.current = symbol; }, [symbol]);
+  useEffect(() => {
+    symbolRef.current = symbol;
+  }, [symbol]);
 
   const loadOrderbook = useCallback(async (sym: string) => {
     try {
@@ -88,7 +93,6 @@ export default function TradePage() {
       /* keep existing orders on transient errors */
     }
   }, []);
-
 
   const refreshPersonalTrades = useCallback(async () => {
     try {
@@ -126,7 +130,9 @@ export default function TradePage() {
       .then((s) => {
         setStocks(s);
         if (s.length > 0) {
-          setSymbol((current) => (s.find((x) => x.symbol === current) ? current : s[0]!.symbol));
+          setSymbol((current) =>
+            s.find((x) => x.symbol === current) ? current : s[0]!.symbol,
+          );
         }
       })
       .catch(() => {});
@@ -203,7 +209,13 @@ export default function TradePage() {
   const handleOrderPlaced = useCallback(
     (
       _result: PlaceOrderResponse,
-      meta: { symbol: string; side: OrderSide; type: OrderType; quantity: number; price?: number },
+      meta: {
+        symbol: string;
+        side: OrderSide;
+        type: OrderType;
+        quantity: number;
+        price?: number;
+      },
     ) => {
       void refreshOrders();
       void refreshPersonalTrades();
@@ -215,75 +227,153 @@ export default function TradePage() {
 
   return (
     // Full-height flex column — no overflow so inner panels scroll independently.
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "#0a0a0a" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+        background: "#0a0a0a",
+      }}
+    >
       <Navbar />
 
       {/* Main area: sidebar + content */}
       <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
-        <Sidebar />
+        <Sidebar
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          balances={balances}
+          stocks={stocks}
+        />
 
-        {/* Content: ticker + trading grid + orders panel */}
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-          <TickerBar
-            symbol={symbol}
+        {/* Dynamic Main View: Spot Trading vs Wallet vs History */}
+        {activeTab === "wallet" ? (
+          <WalletView
+            balances={balances}
             stocks={stocks}
-            lastPrice={lastPrice}
-            change24h={change24h}
-            high24h={high24h}
-            low24h={low24h}
-            volume24h={volume24h}
-            onSymbolChange={handleSymbolChange}
+            onRefresh={() => {
+              void refreshBalances();
+            }}
           />
-
-          {/* 3-column trading grid: orderbook | chart | order form */}
-          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 260px", flex: 1, minHeight: 0, overflow: "hidden" }}>
-            {/* Left: order book */}
-            <div style={{ borderRight: "1px solid #262626", minHeight: 0, overflow: "hidden" }}>
-              <OrderBook asks={asks} bids={bids} lastPrice={lastPrice} />
-            </div>
-
-            {/* Center: chart fills all remaining space */}
-            <div style={{ minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <KLineChart symbol={symbol} />
-            </div>
-
-            {/* Right: order form */}
-            <div style={{ borderLeft: "1px solid #262626", minHeight: 0, overflow: "hidden" }}>
-              <OrderForm
-                symbol={symbol}
-                lastPrice={lastPrice}
-                balances={balances}
-                asks={asks}
-                bids={bids}
-                onOrderPlaced={handleOrderPlaced}
-              />
-            </div>
-          </div>
-
-          {/* Bottom: orders / trade history panel */}
-          <div style={{ height: 180, flexShrink: 0, borderTop: "1px solid #262626" }}>
-            <OrdersPanel
-              orders={orders}
-              trades={personalTrades}
-              balances={balances}
+        ) : activeTab === "history" ? (
+          <HistoryView
+            orders={orders}
+            trades={personalTrades}
+            stocks={stocks}
+            balances={balances}
+            onRefresh={() => {
+              void refreshOrders();
+              void refreshPersonalTrades();
+              void refreshBalances();
+            }}
+          />
+        ) : (
+          /* Spot Trading Layout */
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            <TickerBar
+              symbol={symbol}
               stocks={stocks}
-              onRefresh={() => {
-                refreshOrders();
-                refreshPersonalTrades();
-                refreshBalances();
-                loadOrderbook(symbol);
-              }}
-              onOrderCancelled={(orderId) => {
-                setOrders((prev) =>
-                  prev.map((order) =>
-                    order.id === orderId ? { ...order, status: "CANCELLED" } : order,
-                  ),
-                );
-                refreshPersonalTrades();
-              }}
+              lastPrice={lastPrice}
+              change24h={change24h}
+              high24h={high24h}
+              low24h={low24h}
+              volume24h={volume24h}
+              onSymbolChange={handleSymbolChange}
             />
+
+            {/* Main trading area: 3-column grid where right column is full-height */}
+            <div
+              style={{
+                display: "flex",
+                flex: 1,
+                minHeight: 0,
+                overflow: "hidden",
+                gap: 4,
+                padding: 4,
+                background: "#0a0a0a",
+              }}
+            >
+              {/* Left: order book — full height */}
+              <div style={{ width: 260, flexShrink: 0, minHeight: 0, overflow: "hidden" }}>
+                <OrderBook asks={asks} bids={bids} lastPrice={lastPrice} />
+              </div>
+
+              {/* Center: chart on top + orders panel below */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  overflow: "hidden",
+                }}
+              >
+                {/* Chart */}
+                <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                  <KLineChart symbol={symbol} />
+                </div>
+
+                {/* Bottom: orders / trade history panel (strictly contained) */}
+                <div
+                  style={{
+                    height: 220,
+                    flexShrink: 0,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    borderTop: "1px solid rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <OrdersPanel
+                    orders={orders}
+                    trades={personalTrades}
+                    balances={balances}
+                    stocks={stocks}
+                    onRefresh={() => {
+                      refreshOrders();
+                      refreshPersonalTrades();
+                      refreshBalances();
+                      loadOrderbook(symbol);
+                    }}
+                    onOrderCancelled={(orderId) => {
+                      setOrders((prev) =>
+                        prev.map((order) =>
+                          order.id === orderId ? { ...order, status: "CANCELLED" } : order,
+                        ),
+                      );
+                      refreshPersonalTrades();
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Right: order form — full height, always visible */}
+              <div style={{ width: 300, flexShrink: 0, minHeight: 0, overflow: "hidden" }}>
+                <OrderForm
+                  symbol={symbol}
+                  lastPrice={lastPrice}
+                  balances={balances}
+                  asks={asks}
+                  bids={bids}
+                  onOrderPlaced={handleOrderPlaced}
+                />
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <Footer />

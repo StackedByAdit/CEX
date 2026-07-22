@@ -1,4 +1,5 @@
 import type { Stock } from "../../types";
+import AssetDropdown from "../common/AssetDropdown";
 
 interface TickerBarProps {
   symbol: string;
@@ -35,19 +36,14 @@ export default function TickerBar({
   const isPositive = change24h >= 0;
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-orbit-border px-4 py-3">
-      <div className="flex items-center gap-2">
-        <select
-          value={symbol}
-          onChange={(e) => onSymbolChange(e.target.value)}
-          className="cursor-pointer rounded bg-transparent text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-        >
-          {stocks.map((s) => (
-            <option key={s.symbol} value={s.symbol} className="bg-orbit-panel">
-              {s.symbol}/INR
-            </option>
-          ))}
-        </select>
+    <div className="relative z-50 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-orbit-border px-4 py-2.5 bg-black/40 backdrop-blur-md">
+      <div className="flex items-center">
+        <AssetDropdown
+          symbol={symbol}
+          stocks={stocks}
+          onSymbolChange={onSymbolChange}
+          size="md"
+        />
       </div>
 
       <Stat label="Last Price" value={formatPrice(lastPrice)} large />
