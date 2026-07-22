@@ -14,7 +14,7 @@ let fillBuffer: { stockId: string; buyOrderId: string; sellOrderId: string; pric
 const balanceBuffer = new Map<string, BalanceUpdate>();
 
 let flushTimer: NodeJS.Timeout | null = null;
-let flushing = false;
+let activeFlushPromise: Promise<void> | null = null;
 
 export function queueOrderUpsert(order: MemoryOrder, stockId: string) {
     syncOrderStatus(order);
@@ -41,9 +41,13 @@ function startFlushTimerIfNeeded() {
     }
 }
 
-export async function flushDbBuffer() {
-    if (flushing) {
+export async function flushDbBuffer(): Promise<void> {
+    if (activeFlushPromise) {
         startFlushTimerIfNeeded();
+        await activeFlushPromise;
+        if (orderBuffer.size > 0 || fillBuffer.length > 0 || balanceBuffer.size > 0) {
+            return flushDbBuffer();
+        }
         return;
     }
 
@@ -60,57 +64,67 @@ export async function flushDbBuffer() {
         return;
     }
 
-    flushing = true;
+    activeFlushPromise = (async () => {
+        try {
+            await prisma.$transaction(async (tx) => {
+                // 1. Bulk Upsert Orders
+                for (const item of ordersToSync) {
+                    const { order, stockId } = item;
+                    await tx.order.upsert({
+                        where: { id: order.id },
+                        create: {
+                            id: order.id,
+                            userId: order.userId,
+                            stockId,
+                            side: order.side,
+                            type: order.type,
+                            status: order.status,
+                            price: order.type === "LIMIT" ? order.price! : null,
+                            quantity: order.quantity,
+                            filledQuantity: order.filledQuantity,
+                        },
+                        update: {
+                            filledQuantity: order.filledQuantity,
+                            status: order.status,
+                        },
+                    });
+                }
 
-    try {
-        await prisma.$transaction(async (tx) => {
-            // 1. Bulk Upsert Orders
+                // 2. Bulk Insert Fills
+                if (fillsToSync.length > 0) {
+                    await tx.fill.createMany({
+                        data: fillsToSync,
+                    });
+                }
+
+                // 3. Bulk Update Balances
+                for (const bal of balancesToSync) {
+                    await tx.balance.update({
+                        where: { id: bal.balanceId },
+                        data: {
+                            available: bal.available,
+                            locked: bal.locked,
+                        },
+                    });
+                }
+            });
+        } catch (err) {
+            console.error("Failed to flush DB persistence buffer:", err);
+            // Re-queue snapshotted work so it isn't lost; existing buffer entries win (newer state).
             for (const item of ordersToSync) {
-                const { order, stockId } = item;
-                await tx.order.upsert({
-                    where: { id: order.id },
-                    create: {
-                        id: order.id,
-                        userId: order.userId,
-                        stockId,
-                        side: order.side,
-                        type: order.type,
-                        status: order.status,
-                        price: order.type === "LIMIT" ? order.price! : null,
-                        quantity: order.quantity,
-                        filledQuantity: order.filledQuantity,
-                    },
-                    update: {
-                        filledQuantity: order.filledQuantity,
-                        status: order.status,
-                    },
-                });
+                if (!orderBuffer.has(item.order.id)) orderBuffer.set(item.order.id, item);
             }
-
-            // 2. Bulk Insert Fills
-            if (fillsToSync.length > 0) {
-                await tx.fill.createMany({
-                    data: fillsToSync,
-                });
-            }
-
-            // 3. Bulk Update Balances
+            fillBuffer.unshift(...fillsToSync);
             for (const bal of balancesToSync) {
-                await tx.balance.update({
-                    where: { id: bal.balanceId },
-                    data: {
-                        available: bal.available,
-                        locked: bal.locked,
-                    },
-                });
+                if (!balanceBuffer.has(bal.balanceId)) balanceBuffer.set(bal.balanceId, bal);
             }
-        });
-    } catch (err) {
-        console.error("Failed to flush DB persistence buffer:", err);
-    } finally {
-        flushing = false;
-        if (orderBuffer.size > 0 || fillBuffer.length > 0 || balanceBuffer.size > 0) {
-            startFlushTimerIfNeeded();
+        } finally {
+            activeFlushPromise = null;
+            if (orderBuffer.size > 0 || fillBuffer.length > 0 || balanceBuffer.size > 0) {
+                startFlushTimerIfNeeded();
+            }
         }
-    }
+    })();
+
+    await activeFlushPromise;
 }

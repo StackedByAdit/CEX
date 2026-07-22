@@ -71,6 +71,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   const symbolRef = useRef(symbol);
   const periodRef = useRef<PeriodInterval>("15m");
   const barCallbackRef = useRef<((data: KLineData) => void) | null>(null);
+  const liveBucketRef = useRef<KLineData | null>(null);
   const [activePeriod, setActivePeriod] = useState<PeriodInterval>("15m");
   const [pillStyle, setPillStyle] = useState({ left: 3, width: 44 });
   const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
@@ -88,6 +89,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
 
   useEffect(() => {
     symbolRef.current = symbol;
+    liveBucketRef.current = null;
   }, [symbol]);
 
   // Single init effect — chart creation, datafeed, symbol, and WS subscription all in one pass.
@@ -282,7 +284,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
     applyYAxisConfig(chart);
 
     // Forward live 1m candle pushes from WS into the subscribeBar callback,
-    // bucketing to the currently active period so derived intervals update too.
+    // aggregating consecutive updates within the active period bucket.
     const unsub = orbitWs.subscribe((msg: WsMessage) => {
       if (
         msg.type === "CANDLE_UPDATE" &&
@@ -291,14 +293,29 @@ export default function KLineChart({ symbol }: KLineChartProps) {
       ) {
         const intervalMs = INTERVAL_MS[periodRef.current];
         const bucketStart = Math.floor(msg.startTime / intervalMs) * intervalMs;
-        barCallbackRef.current({
-          timestamp: bucketStart,
-          open: msg.open,
-          high: msg.high,
-          low: msg.low,
-          close: msg.close,
-          volume: msg.volume,
-        });
+        const currentBucket = liveBucketRef.current;
+
+        if (!currentBucket || currentBucket.timestamp !== bucketStart) {
+          liveBucketRef.current = {
+            timestamp: bucketStart,
+            open: msg.open,
+            high: msg.high,
+            low: msg.low,
+            close: msg.close,
+            volume: msg.volume,
+          };
+        } else {
+          liveBucketRef.current = {
+            timestamp: bucketStart,
+            open: currentBucket.open,
+            high: Math.max(currentBucket.high, msg.high),
+            low: Math.min(currentBucket.low, msg.low),
+            close: msg.close,
+            volume: (currentBucket.volume ?? 0) + msg.volume,
+          };
+        }
+
+        barCallbackRef.current(liveBucketRef.current);
       }
     });
 
@@ -312,6 +329,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
       unsub();
       observer.disconnect();
       barCallbackRef.current = null;
+      liveBucketRef.current = null;
       dispose(el);
       chartRef.current = null;
     };
@@ -322,6 +340,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    liveBucketRef.current = null;
     chart.setSymbol({ ticker: symbol });
     applyYAxisConfig(chart);
   }, [symbol]);
@@ -329,6 +348,7 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   function handlePeriodChange(interval: PeriodInterval) {
     const chart = chartRef.current;
     if (!chart) return;
+    liveBucketRef.current = null;
     periodRef.current = interval;
     setActivePeriod(interval);
     const period = PERIODS.find((p) => p.interval === interval) ?? PERIODS[1]!;
