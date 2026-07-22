@@ -3,9 +3,10 @@ import { ORDERS, ORDERBOOK } from "../state";
 import type { MemoryOrder } from "../types/order";
 
 function orderStatus(order: MemoryOrder): MemoryOrder["status"] {
+    if (order.status === "CANCELLED") return "CANCELLED";
     if (order.filledQuantity === order.quantity) return "FILLED";
     if (order.filledQuantity > 0) return "PARTIALLY_FILLED";
-    return order.status === "CANCELLED" ? "CANCELLED" : "PENDING";
+    return "PENDING";
 }
 
 export function syncOrderStatus(order: MemoryOrder) {
@@ -71,8 +72,10 @@ export async function restoreOpenOrders() {
 
         ORDERS.push(order);
 
-        const firm = ORDERBOOK[order.symbol];
-        if (!firm) continue;
+        if (!ORDERBOOK[order.symbol]) {
+            ORDERBOOK[order.symbol] = { bids: {}, asks: {} };
+        }
+        const firm = ORDERBOOK[order.symbol]!;
 
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
         if (order.price !== undefined) {

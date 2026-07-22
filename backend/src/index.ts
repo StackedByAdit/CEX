@@ -22,7 +22,7 @@ import { restoreOpenOrders } from "./utils/orderSync";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
 import { executeOrder, runWorker } from "./worker";
-import { queueBalanceUpdate, queueOrderUpsert } from "./utils/dbBuffer";
+import { flushDbBuffer, queueBalanceUpdate, queueOrderUpsert } from "./utils/dbBuffer";
 import {
     buildClearCookieHeader,
     buildSetCookieHeader,
@@ -297,6 +297,8 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 
     const orderId = req.params.orderId as string;
 
+    await flushDbBuffer();
+
     let order = ORDERS.find(entry => entry.id === orderId);
 
     if (!order) {
@@ -335,8 +337,10 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
 
         ORDERS.push(newOrder);
 
-        const firm = ORDERBOOK[newOrder.symbol] ?? { bids: {}, asks: {} };
-        ORDERBOOK[newOrder.symbol] = firm;
+        if (!ORDERBOOK[newOrder.symbol]) {
+            ORDERBOOK[newOrder.symbol] = { bids: {}, asks: {} };
+        }
+        const firm = ORDERBOOK[newOrder.symbol]!;
         const bookSide = newOrder.side === "BUY" ? firm.bids : firm.asks;
         if (newOrder.price !== undefined) {
             if (!bookSide[newOrder.price]) bookSide[newOrder.price] = [];
@@ -360,60 +364,70 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
     }
 
     const firm = ORDERBOOK[order.symbol];
-    if (!firm) {
-        return res.status(404).json({ message: "Symbol not found" });
-    }
+    if (firm) {
+        const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
+        const ordersAtPrice = bookSide[order.price];
 
-    const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
-    const ordersAtPrice = bookSide[order.price];
+        if (ordersAtPrice) {
+            const index = ordersAtPrice.findIndex(entry => entry.id === orderId);
 
-    if (!ordersAtPrice) {
-        return res.status(404).json({ message: "Order not found in orderbook" });
-    }
-
-    const index = ordersAtPrice.findIndex(entry => entry.id === orderId);
-
-    if (index === -1) {
-        return res.status(404).json({ message: "Order not found in orderbook" });
-    }
-
-    ordersAtPrice.splice(index, 1);
-    if (ordersAtPrice.length === 0) {
-        delete bookSide[order.price];
+            if (index !== -1) {
+                ordersAtPrice.splice(index, 1);
+                if (ordersAtPrice.length === 0) {
+                    delete bookSide[order.price];
+                }
+            }
+        }
     }
 
     order.status = "CANCELLED";
 
-    const stockId = STOCK_BY_SYMBOL[order.symbol]!.id;
-    queueOrderUpsert(order, stockId);
+    let stockId = STOCK_BY_SYMBOL[order.symbol]?.id;
+    if (!stockId) {
+        const dbStock = await prisma.stock.findUnique({ where: { symbol: order.symbol } });
+        if (dbStock) {
+            stockId = dbStock.id;
+            STOCK_BY_SYMBOL[order.symbol] = { id: stockId };
+        }
+    }
+    if (stockId) {
+        queueOrderUpsert(order, stockId);
+    }
 
     const price = order.price;
     const quantity = roundQty(order.quantity - order.filledQuantity);
 
-    if (order.side === "BUY") {
-        const inrBalance = await assureBalance(order.userId, "INR");
+    if (quantity > 0) {
+        if (order.side === "BUY") {
+            const inrBalance = await assureBalance(order.userId, "INR");
+            const refundAmount = roundInr(price * quantity);
 
-        inrBalance.available += price * quantity;
-        inrBalance.locked -= price * quantity;
+            inrBalance.available += refundAmount;
+            inrBalance.locked -= refundAmount;
 
-        queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
 
-    } else {
-        const stockBalance = await assureBalance(order.userId, order.symbol);
+        } else {
+            const stockBalance = await assureBalance(order.userId, order.symbol);
 
-        stockBalance.available += quantity;
-        stockBalance.locked -= quantity;
+            stockBalance.available += quantity;
+            stockBalance.locked -= quantity;
 
-        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
+            queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
+        }
     }
 
     publishOrderbook(order.symbol);
     publishBalance(order.userId);
 
+    await flushDbBuffer();
+
     return res.status(200).json({ message: "Order cancelled" });
 });
 
 app.get("/orders", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    await flushDbBuffer();
 
     const status = req.query.status ? String(req.query.status).toUpperCase() as OrderStatus : undefined;
 
@@ -421,6 +435,9 @@ app.get("/orders", authMiddleware, async (req: CustomRequest, res: Response) => 
         where: {
             userId: req.id,
             status
+        },
+        orderBy: {
+            createdAt: "desc"
         }
     });
 
@@ -566,6 +583,9 @@ async function bootstrap() {
     const stocks = await prisma.stock.findMany();
     for (const stock of stocks) {
         STOCK_BY_SYMBOL[stock.symbol] = { id: stock.id };
+        if (!ORDERBOOK[stock.symbol]) {
+            ORDERBOOK[stock.symbol] = { bids: {}, asks: {} };
+        }
     }
 
     const balances = await prisma.balance.findMany({ include: { stock: true } });
