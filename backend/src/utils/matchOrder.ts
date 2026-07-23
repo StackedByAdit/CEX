@@ -85,24 +85,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 sellerStock.locked -= tradeQty;
                 sellerInr.available += tradeQuote;
 
-                Promise.all([
-                    prisma.balance.update({
-                        where: { id: buyerInr.balanceId },
-                        data: { locked: { decrement: tradeQuote } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: buyerStock.balanceId },
-                        data: { available: { increment: tradeQty } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: sellerStock.balanceId },
-                        data: { locked: { decrement: tradeQty } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: sellerInr.balanceId },
-                        data: { available: { increment: tradeQuote } },
-                    }),
-                ]).catch(err => console.error("DB sync error (buy match balances):", err));
+
 
                 fillRecords.push({
                     buyOrderId: order.id,
@@ -159,24 +142,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 sellerStock.locked -= tradeQty;
                 sellerInr.available += tradeQuote;
 
-                Promise.all([
-                    prisma.balance.update({
-                        where: { id: buyerInr.balanceId },
-                        data: { locked: { decrement: tradeQuote } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: buyerStock.balanceId },
-                        data: { available: { increment: tradeQty } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: sellerStock.balanceId },
-                        data: { locked: { decrement: tradeQty } },
-                    }),
-                    prisma.balance.update({
-                        where: { id: sellerInr.balanceId },
-                        data: { available: { increment: tradeQuote } },
-                    }),
-                ]).catch(err => console.error("DB sync error (sell match balances):", err));
+
 
                 fillRecords.push({
                     buyOrderId: buyOrder.id,
@@ -222,13 +188,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 buyerInr.locked -= refundQuote;
                 buyerInr.available += refundQuote;
 
-                prisma.balance.update({
-                    where: { id: buyerInr.balanceId },
-                    data: {
-                        locked: { decrement: refundQuote },
-                        available: { increment: refundQuote },
-                    },
-                }).catch(err => console.error("DB sync error (market buy refund):", err));
+
             }
 
             order.lockedQuoteAmount = undefined;
@@ -239,13 +199,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 sellerStock.locked -= unfilledQty;
                 sellerStock.available += unfilledQty;
 
-                prisma.balance.update({
-                    where: { id: sellerStock.balanceId },
-                    data: {
-                        locked: { decrement: unfilledQty },
-                        available: { increment: unfilledQty },
-                    },
-                }).catch(err => console.error("DB sync error (market sell refund):", err));
+
             }
         }
     }

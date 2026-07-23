@@ -18,7 +18,7 @@ export class OrbitWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
   private orderbookSymbol: string | null = null;
-  private candleSub: { symbol: string; interval: string } | null = null;
+  private candleSymbol: string | null = null;
 
   connect() {
     if (!isAuthenticated()) return;
@@ -75,12 +75,8 @@ export class OrbitWebSocket {
     if (this.orderbookSymbol) {
       this.send({ type: "SUBSCRIBE_ORDERBOOK", symbol: this.orderbookSymbol });
     }
-    if (this.candleSub) {
-      this.send({
-        type: "SUBSCRIBE_CANDLE",
-        symbol: this.candleSub.symbol,
-        interval: this.candleSub.interval,
-      });
+    if (this.candleSymbol) {
+      this.send({ type: "SUBSCRIBE_CANDLE", symbol: this.candleSymbol, interval: "1m" });
     }
   }
 
@@ -109,16 +105,16 @@ export class OrbitWebSocket {
     this.send({ type: "UNSUBSCRIBE_ORDERBOOK", symbol });
   }
 
-  subscribeCandle(symbol: string, interval: string) {
-    this.candleSub = { symbol, interval };
-    this.send({ type: "SUBSCRIBE_CANDLE", symbol, interval });
+  subscribeCandle(symbol: string) {
+    this.candleSymbol = symbol;
+    this.send({ type: "SUBSCRIBE_CANDLE", symbol, interval: "1m" });
   }
 
-  unsubscribeCandle(symbol: string, interval: string) {
-    if (this.candleSub?.symbol === symbol && this.candleSub.interval === interval) {
-      this.candleSub = null;
+  unsubscribeCandle(symbol: string) {
+    if (this.candleSymbol === symbol) {
+      this.candleSymbol = null;
     }
-    this.send({ type: "UNSUBSCRIBE_CANDLE", symbol, interval });
+    this.send({ type: "UNSUBSCRIBE_CANDLE", symbol, interval: "1m" });
   }
 
   requestBalance() {
