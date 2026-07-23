@@ -236,7 +236,7 @@ export default function TradePage() {
         background: "#0a0a0a",
       }}
     >
-      <Navbar />
+      <Navbar onSelectTab={setActiveTab} />
 
       {/* Main area: sidebar + content */}
       <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>

@@ -53,6 +53,16 @@ export async function logout() {
   return request<{ message: string }>("/logout", { method: "POST" });
 }
 
+export async function depositFunds(amount: number, symbol: string = "INR") {
+  return request<{ message: string; symbol: string; available: number; balances?: Record<string, Balance> }>(
+    "/deposit",
+    {
+      method: "POST",
+      body: JSON.stringify({ amount, symbol }),
+    },
+  );
+}
+
 export async function fetchStocks() {
   const data = await request<{ stocks: Stock[] }>("/stocks");
   return data.stocks;

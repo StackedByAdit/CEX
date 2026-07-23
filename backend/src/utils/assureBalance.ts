@@ -23,16 +23,28 @@ export async function assureBalance(userId: string, symbol: string) {
         });
 
         if (!balance) {
-            balance = await prisma.balance.create({
-                data: { userId, stockId: null, assetType: "INR", available: 0, locked: 0 }
-            });
+            try {
+                balance = await prisma.balance.create({
+                    data: { userId, stockId: null, assetType: "INR", available: 0, locked: 0 }
+                });
+            } catch {
+                balance = await prisma.balance.findFirst({
+                    where: { userId, assetType: "INR" }
+                });
+            }
         }
 
-        BALANCES[userId]![symbol] = {
-            available: balance.available.toNumber(),
-            locked: balance.locked.toNumber(),
-            balanceId: balance.id
-        };
+        if (!balance) {
+            throw new Error(`Failed to assure INR balance for user ${userId}`);
+        }
+
+        if (!BALANCES[userId]![symbol]) {
+            BALANCES[userId]![symbol] = {
+                available: balance.available.toNumber(),
+                locked: balance.locked.toNumber(),
+                balanceId: balance.id
+            };
+        }
 
         return BALANCES[userId]![symbol]!;
     }
@@ -45,16 +57,28 @@ export async function assureBalance(userId: string, symbol: string) {
     });
 
     if (!balance) {
-        balance = await prisma.balance.create({
-            data: { userId, stockId: stockMeta.id, assetType: "STOCK", available: 0, locked: 0 }
-        });
+        try {
+            balance = await prisma.balance.create({
+                data: { userId, stockId: stockMeta.id, assetType: "STOCK", available: 0, locked: 0 }
+            });
+        } catch {
+            balance = await prisma.balance.findFirst({
+                where: { userId, assetType: "STOCK", stockId: stockMeta.id }
+            });
+        }
     }
 
-    BALANCES[userId]![symbol] = {
-        available: balance.available.toNumber(),
-        locked: balance.locked.toNumber(),
-        balanceId: balance.id
-    };
+    if (!balance) {
+        throw new Error(`Failed to assure ${symbol} balance for user ${userId}`);
+    }
+
+    if (!BALANCES[userId]![symbol]) {
+        BALANCES[userId]![symbol] = {
+            available: balance.available.toNumber(),
+            locked: balance.locked.toNumber(),
+            balanceId: balance.id
+        };
+    }
 
     return BALANCES[userId]![symbol]!;
 }

@@ -71,14 +71,14 @@ app.post("/signup", async (req: Request, res: Response) => {
                         userId: newUser.id,
                         assetType: AssetType.STOCK,
                         stockId: stock.id,
-                        available: 100000000,
+                        available: 0,
                         locked: 0
                     }
                 });
                 if (!BALANCES[newUser.id]) BALANCES[newUser.id] = {};
 
                 BALANCES[newUser.id]![stock.symbol] = {
-                    available: 100000000,
+                    available: 0,
                     locked: 0,
                     balanceId: balance.id
                 };
@@ -89,13 +89,13 @@ app.post("/signup", async (req: Request, res: Response) => {
             data: {
                 userId: newUser.id,
                 assetType: AssetType.INR,
-                available: 100000000000,
+                available: 0,
                 locked: 0
             }
         });
 
         BALANCES[newUser.id]!["INR"] = {
-            available: 100000000000,
+            available: 0,
             locked: 0,
             balanceId: inrBalance.id
         };
@@ -169,6 +169,46 @@ app.post("/logout", (_req: Request, res: Response) => {
     );
 
     return res.status(200).json({ message: "Logged out" });
+});
+
+app.post("/deposit", authMiddleware, async (req: CustomRequest, res: Response) => {
+
+    const { amount, symbol } = req.body;
+
+    const MAX_DEPOSIT_AMOUNT = 100_000_000_000;
+    const depositAmount = Number(amount);
+    if (!Number.isFinite(depositAmount) || depositAmount <= 0 || depositAmount > MAX_DEPOSIT_AMOUNT) {
+        return res.status(400).json({ message: "Invalid deposit amount" });
+    }
+
+    const userId = req.id!;
+    const assetSymbol = symbol && typeof symbol === "string" ? symbol.toUpperCase() : "INR";
+
+    if (assetSymbol !== "INR" && !STOCK_BY_SYMBOL[assetSymbol]) {
+        return res.status(400).json({ message: "Stock not found" });
+    }
+
+    try {
+        const balance = await assureBalance(userId, assetSymbol);
+        balance.available += depositAmount;
+
+        queueBalanceUpdate(balance.balanceId, balance.available, balance.locked);
+        publishBalance(userId);
+        await flushDbBuffer();
+
+        return res.status(200).json({
+            message: "Deposit successful",
+            symbol: assetSymbol,
+            available: balance.available,
+            balances: BALANCES[userId]
+        });
+    } catch (err: any) {
+        if (err?.message?.startsWith("Stock not found")) {
+            return res.status(400).json({ message: "Stock not found" });
+        }
+        console.log(err);
+        return res.status(500).json({ message: "Internal server error" });
+    }
 });
 
 app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => {
