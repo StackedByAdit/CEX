@@ -175,13 +175,18 @@ app.post("/deposit", authMiddleware, async (req: CustomRequest, res: Response) =
 
     const { amount, symbol } = req.body;
 
+    const MAX_DEPOSIT_AMOUNT = 100_000_000_000;
     const depositAmount = Number(amount);
-    if (isNaN(depositAmount) || depositAmount <= 0) {
+    if (!Number.isFinite(depositAmount) || depositAmount <= 0 || depositAmount > MAX_DEPOSIT_AMOUNT) {
         return res.status(400).json({ message: "Invalid deposit amount" });
     }
 
     const userId = req.id!;
     const assetSymbol = symbol && typeof symbol === "string" ? symbol.toUpperCase() : "INR";
+
+    if (assetSymbol !== "INR" && !STOCK_BY_SYMBOL[assetSymbol]) {
+        return res.status(400).json({ message: "Stock not found" });
+    }
 
     try {
         const balance = await assureBalance(userId, assetSymbol);
@@ -197,7 +202,10 @@ app.post("/deposit", authMiddleware, async (req: CustomRequest, res: Response) =
             available: balance.available,
             balances: BALANCES[userId]
         });
-    } catch (err) {
+    } catch (err: any) {
+        if (err?.message?.startsWith("Stock not found")) {
+            return res.status(400).json({ message: "Stock not found" });
+        }
         console.log(err);
         return res.status(500).json({ message: "Internal server error" });
     }
