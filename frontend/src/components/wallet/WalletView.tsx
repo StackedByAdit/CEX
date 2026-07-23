@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import type { Balance, Stock } from "../../types";
 import { Wallet, ArrowDownLeft, ArrowUpRight, ShieldCheck, CreditCard, RefreshCw, Sparkles } from "lucide-react";
+import { depositFunds } from "../../lib/api";
 
 interface WalletViewProps {
   balances: Record<string, Balance>;
@@ -10,7 +11,9 @@ interface WalletViewProps {
 
 export default function WalletView({ balances, stocks, onRefresh }: WalletViewProps) {
   const [depositAmount, setDepositAmount] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const [selectedAsset, setSelectedAsset] = useState("INR");
+  const [isDepositing, setIsDepositing] = useState(false);
+  const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<"overview" | "deposit" | "withdraw">("overview");
 
   const inrAvailable = balances["INR"]?.available ?? 0;
@@ -43,13 +46,27 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
     return list;
   }, [balances, stocks, inrAvailable, inrLocked, inrTotal]);
 
-  const handleDeposit = (e: React.FormEvent) => {
+  const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(depositAmount);
     if (!amt || amt <= 0) return;
-    setToast(`Deposit request of ₹${amt.toLocaleString("en-IN")} received! (Feature in demo mode)`);
-    setDepositAmount("");
-    setTimeout(() => setToast(null), 4000);
+
+    setIsDepositing(true);
+    try {
+      await depositFunds(amt, selectedAsset);
+      const isInr = selectedAsset === "INR";
+      setToast({
+        message: `Successfully deposited ${isInr ? `₹${amt.toLocaleString("en-IN")}` : `${amt} ${selectedAsset}`} to your wallet!`,
+      });
+      setDepositAmount("");
+      onRefresh();
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : "Deposit failed";
+      setToast({ message: errMsg, isError: true });
+    } finally {
+      setIsDepositing(false);
+      setTimeout(() => setToast(null), 4000);
+    }
   };
 
   const setPreset = (amt: number) => {
@@ -225,8 +242,11 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => setActiveSubTab("deposit")}
-                            className="px-3 py-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition"
+                            onClick={() => {
+                              setSelectedAsset(asset.symbol);
+                              setActiveSubTab("deposit");
+                            }}
+                            className="px-3 py-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition cursor-pointer"
                           >
                             Deposit
                           </button>
@@ -244,53 +264,84 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
               <div className="p-6 rounded-2xl border border-white/5 bg-white/3 backdrop-blur-md">
                 <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
                   <ArrowDownLeft className="text-emerald-400" size={20} />
-                  Deposit INR Funds
+                  Deposit {selectedAsset} Funds
                 </h2>
                 <p className="text-xs text-orbit-secondary mb-6">
-                  Add INR to your wallet using Instant UPI or Bank Transfer.
+                  Add {selectedAsset === "INR" ? "INR balance via instant deposit" : `${selectedAsset} shares to your account balance`}.
                 </p>
 
                 <form onSubmit={handleDeposit} className="space-y-4">
                   <div>
                     <label className="block text-xs uppercase tracking-wider text-orbit-secondary mb-2 font-medium">
-                      Deposit Amount (INR)
+                      Select Asset
+                    </label>
+                    <select
+                      value={selectedAsset}
+                      onChange={(e) => setSelectedAsset(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-black/60 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition cursor-pointer"
+                    >
+                      <option value="INR">INR (Indian Rupee)</option>
+                      {stocks.map((s) => (
+                        <option key={s.symbol} value={s.symbol}>
+                          {s.symbol} - {s.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-orbit-secondary mb-2 font-medium">
+                      Deposit Amount ({selectedAsset})
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3.5 top-2.5 text-orbit-secondary font-bold text-sm">₹</span>
+                      <span className="absolute left-3.5 top-2.5 text-orbit-secondary font-bold text-sm">
+                        {selectedAsset === "INR" ? "₹" : selectedAsset[0]}
+                      </span>
                       <input
                         type="number"
+                        min="1"
+                        step="any"
                         value={depositAmount}
                         onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder="Enter amount (e.g. 5000)"
+                        placeholder={`Enter amount in ${selectedAsset}`}
                         className="w-full pl-8 pr-4 py-2.5 rounded-xl border border-white/10 bg-black/40 text-sm font-semibold text-white placeholder-orbit-muted outline-none focus:border-indigo-500 transition"
                       />
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    {[500, 2000, 5000, 10000, 50000].map((amt) => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setPreset(amt)}
-                        className="flex-1 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-semibold hover:border-indigo-500 hover:text-indigo-400 transition"
-                      >
-                        ₹{amt >= 1000 ? `${amt / 1000}k` : amt}
-                      </button>
-                    ))}
-                  </div>
+                  {selectedAsset === "INR" && (
+                    <div className="flex gap-2">
+                      {[500, 2000, 5000, 10000, 50000].map((amt) => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setPreset(amt)}
+                          className="flex-1 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-semibold hover:border-indigo-500 hover:text-indigo-400 transition cursor-pointer"
+                        >
+                          ₹{amt >= 1000 ? `${amt / 1000}k` : amt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {toast && (
-                    <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium">
-                      {toast}
+                    <div
+                      className={`p-3 rounded-xl border text-xs font-medium ${
+                        toast.isError
+                          ? "border-red-500/30 bg-red-500/10 text-red-400"
+                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      }`}
+                    >
+                      {toast.message}
                     </div>
                   )}
 
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-sm shadow-lg hover:opacity-90 active:scale-[0.99] transition"
+                    disabled={isDepositing}
+                    className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-sm shadow-lg hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50 cursor-pointer"
                   >
-                    Confirm Deposit
+                    {isDepositing ? "Processing Deposit..." : `Confirm ${selectedAsset} Deposit`}
                   </button>
                 </form>
               </div>

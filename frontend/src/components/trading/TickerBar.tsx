@@ -36,7 +36,7 @@ export default function TickerBar({
   const isPositive = change24h >= 0;
 
   return (
-    <div className="relative z-50 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-orbit-border px-4 py-2.5 bg-black/40 backdrop-blur-md">
+    <div className="relative z-40 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-orbit-border px-4 py-2.5 bg-black/40 backdrop-blur-md">
       <div className="flex items-center">
         <AssetDropdown
           symbol={symbol}
