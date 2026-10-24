@@ -1,6 +1,7 @@
 import { prisma } from "../prisma";
 import { ORDERS, ORDERBOOK } from "../state";
 import type { MemoryOrder } from "../types/order";
+import BTree from "sorted-btree";
 
 function orderStatus(order: MemoryOrder): MemoryOrder["status"] {
     if (order.status === "CANCELLED") return "CANCELLED";
@@ -73,15 +74,19 @@ export async function restoreOpenOrders() {
         ORDERS.push(order);
 
         if (!ORDERBOOK[order.symbol]) {
-            ORDERBOOK[order.symbol] = { bids: {}, asks: {} };
+            ORDERBOOK[order.symbol] = { bids: new BTree(), asks: new BTree() };
         }
         const firm = ORDERBOOK[order.symbol]!;
 
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
         if (order.price !== undefined) {
-            if (!bookSide[order.price]) bookSide[order.price] = [];
-            if (!bookSide[order.price]!.some((entry) => entry.id === order.id)) {
-                bookSide[order.price]!.push(order);
+            let list = bookSide.get(order.price);
+            if (!list) {
+                list = [];
+                bookSide.set(order.price, list);
+            }
+            if (!list.some((entry) => entry.id === order.id)) {
+                list.push(order);
             }
         }
     }

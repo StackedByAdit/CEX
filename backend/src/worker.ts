@@ -82,6 +82,7 @@ export async function executeOrder(order: MemoryOrder, stockId: string): Promise
 async function processOrder(order: MemoryOrder, stockId: string) {
     const result = await executeOrder(order, stockId);
     await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
+    await redisClient.expire(`result:${order.id}`, 10);
     console.log("Result pushed for:", order.id);
 }
 

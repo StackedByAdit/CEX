@@ -33,12 +33,21 @@ function StatusBadge({ status }: { status: string }) {
     FILLED: "bg-green-500/10 text-green-400 border-green-500/20",
     CANCELLED: "bg-red-500/10 text-red-400 border-red-500/20",
     PENDING: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    OPEN: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
     PARTIALLY_FILLED: "bg-orange-500/10 text-orange-400 border-orange-500/20",
   };
+  const labels: Record<string, string> = {
+    FILLED: "FILLED",
+    CANCELLED: "CANCELLED",
+    PENDING: "OPEN",
+    OPEN: "OPEN",
+    PARTIALLY_FILLED: "PARTIALLY FILLED",
+  };
   const style = styles[status] || "bg-white/10 text-white border-white/20";
+  const label = labels[status] || status;
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${style}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -86,14 +95,13 @@ export default function OrdersPanel({
   const openOrders = sortByTimeDesc(
     orders.filter(
       (o) =>
-        o.type === "LIMIT" &&
-        (o.status === "PENDING" || o.status === "PARTIALLY_FILLED"),
+        o.status === "PENDING" ||
+        o.status === "PARTIALLY_FILLED" ||
+        (o.status as string) === "OPEN",
     ),
   );
   const fulfilledOrders = sortByTimeDesc(orders.filter((o) => o.status === "FILLED"));
-  const historyOrders = sortByTimeDesc(
-    orders.filter((o) => o.status === "FILLED" || o.status === "CANCELLED"),
-  );
+  const historyOrders = sortByTimeDesc(orders);
   const sortedTrades = sortByTimeDesc(trades);
 
   async function handleCancel(orderId: string) {
@@ -154,10 +162,23 @@ export default function OrdersPanel({
             onCancel={handleCancel}
             cancelling={cancelling}
             stocks={stocks}
+            emptyMessage="No open orders"
           />
         )}
-        {tab === "fulfilled" && <OrdersTable orders={fulfilledOrders} stocks={stocks} />}
-        {tab === "history" && <OrdersTable orders={historyOrders} stocks={stocks} />}
+        {tab === "fulfilled" && (
+          <OrdersTable
+            orders={fulfilledOrders}
+            stocks={stocks}
+            emptyMessage="No fulfilled orders"
+          />
+        )}
+        {tab === "history" && (
+          <OrdersTable
+            orders={historyOrders}
+            stocks={stocks}
+            emptyMessage="No order history"
+          />
+        )}
         {tab === "trades" && <TradesTable trades={sortedTrades} />}
         {tab === "funds" && <FundsTable balances={balances} stocks={stocks} />}
       </div>
@@ -171,17 +192,19 @@ function OrdersTable({
   onCancel,
   cancelling,
   stocks,
+  emptyMessage = "No orders found",
 }: {
   orders: Order[];
   showCancel?: boolean;
   onCancel?: (id: string) => void;
   cancelling?: string | null;
   stocks: Stock[];
+  emptyMessage?: string;
 }) {
   const stockMap = Object.fromEntries(stocks.map((s) => [s.id, s.symbol]));
 
   if (orders.length === 0) {
-    return <EmptyState message="No open orders" />;
+    return <EmptyState message={emptyMessage} />;
   }
 
   return (

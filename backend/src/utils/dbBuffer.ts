@@ -28,6 +28,7 @@ export function queueFillsInsert(fills: { stockId: string; buyOrderId: string; s
 }
 
 export function queueBalanceUpdate(balanceId: string, available: number, locked: number) {
+    if (!balanceId) return;
     balanceBuffer.set(balanceId, { balanceId, available, locked });
     startFlushTimerIfNeeded();
 }
@@ -99,6 +100,7 @@ export async function flushDbBuffer(): Promise<void> {
 
                 // 3. Bulk Update Balances
                 for (const bal of balancesToSync) {
+                    if (!bal.balanceId) continue;
                     await tx.balance.update({
                         where: { id: bal.balanceId },
                         data: {

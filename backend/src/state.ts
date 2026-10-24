@@ -1,13 +1,14 @@
 import type { MemoryOrder } from "./types/order";
+import BTree from "sorted-btree";
 
 export const ORDERS: MemoryOrder[] = [];
 
 export const BALANCES: Record<string, Record<string, { available: number, locked: number, balanceId: string }>> = {};
 
-export const ORDERBOOK: Record<string, { asks: Record<number, MemoryOrder[]>; bids: Record<number, MemoryOrder[]> }> = {
-    AXIS: { asks: {}, bids: {} },
-    SOL: { asks: {}, bids: {} },
-    HDFC: { asks: {}, bids: {} },
+export const ORDERBOOK: Record<string, { asks: BTree<number, MemoryOrder[]>; bids: BTree<number, MemoryOrder[]> }> = {
+    AXIS: { asks: new BTree(), bids: new BTree() },
+    SOL: { asks: new BTree(), bids: new BTree() },
+    HDFC: { asks: new BTree(), bids: new BTree() },
 };
 
 export const CANDLES: Record<string, {

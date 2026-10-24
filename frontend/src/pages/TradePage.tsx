@@ -221,6 +221,12 @@ export default function TradePage() {
       void refreshPersonalTrades();
       void refreshBalances();
       void loadOrderbook(meta.symbol);
+
+      setTimeout(() => {
+        void refreshOrders();
+        void refreshPersonalTrades();
+        void refreshBalances();
+      }, 500);
     },
     [refreshOrders, refreshPersonalTrades, refreshBalances, loadOrderbook],
   );
