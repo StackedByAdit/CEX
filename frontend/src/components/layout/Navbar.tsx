@@ -1,18 +1,26 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, LogOut, Wallet, ChevronDown } from "lucide-react";
+import { Bell, LogOut, Wallet, ChevronDown, Zap } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { clearAuth, getUsername } from "../../lib/auth";
 import { logout } from "../../lib/api";
+import { useSimulator } from "../../lib/simulator/useSimulator";
 
 interface NavbarProps {
-  onSelectTab?: (tab: "spot" | "wallet" | "history") => void;
+  onSelectTab?: (tab: "spot" | "wallet" | "history" | "simulator") => void;
+  onToggleSimulator?: () => void;
+  isSimulatorOpen?: boolean;
 }
 
-export default function Navbar({ onSelectTab }: NavbarProps) {
+export default function Navbar({
+  onSelectTab,
+  onToggleSimulator,
+  isSimulatorOpen,
+}: NavbarProps) {
   const navigate = useNavigate();
   const username = getUsername();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { isRunning: isSimRunning } = useSimulator();
 
   async function handleLogout() {
     setDropdownOpen(false);
@@ -77,6 +85,23 @@ export default function Navbar({ onSelectTab }: NavbarProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Dedicated Quick Simulator Toggle Button */}
+        <button
+          onClick={onToggleSimulator}
+          title="Toggle Market Simulator Panel"
+          className={`relative rounded-lg px-2.5 py-1 transition cursor-pointer flex items-center gap-1.5 text-xs ${
+            isSimulatorOpen
+              ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+              : "text-orbit-secondary hover:bg-white/5 hover:text-white border border-transparent"
+          }`}
+        >
+          <Zap size={14} className={isSimRunning ? "text-yellow-400" : ""} />
+          <span className="hidden md:inline font-medium text-[11px]">Simulator</span>
+          {isSimRunning && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          )}
+        </button>
+
         <button className="rounded p-1.5 text-orbit-secondary transition hover:bg-white/5 hover:text-white cursor-pointer">
           <Bell size={16} />
         </button>
