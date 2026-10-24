@@ -34,15 +34,12 @@ export function walkAsks(symbol: string, quantity: number): MarketWalkResult {
         return { fillableQuantity: 0, estimatedQuote: 0, averagePrice: 0, fills: [] };
     }
 
-    const askPrices = Object.keys(firm.asks).map(Number).sort((a, b) => a - b);
     let remaining = quantity;
     let estimatedQuote = 0;
     const fills: MarketWalkFill[] = [];
 
-    for (const price of askPrices) {
+    for (const [price, ordersAtPrice] of firm.asks.entries()) {
         if (remaining <= 0) break;
-
-        const ordersAtPrice = firm.asks[price];
         if (!ordersAtPrice) continue;
 
         const available = availableAtPrice(ordersAtPrice);
@@ -67,15 +64,12 @@ export function walkBids(symbol: string, quantity: number): MarketWalkResult {
         return { fillableQuantity: 0, estimatedQuote: 0, averagePrice: 0, fills: [] };
     }
 
-    const bidPrices = Object.keys(firm.bids).map(Number).sort((a, b) => b - a);
     let remaining = quantity;
     let estimatedQuote = 0;
     const fills: MarketWalkFill[] = [];
 
-    for (const price of bidPrices) {
+    for (const [price, ordersAtPrice] of firm.bids.entriesReversed()) {
         if (remaining <= 0) break;
-
-        const ordersAtPrice = firm.bids[price];
         if (!ordersAtPrice) continue;
 
         const available = availableAtPrice(ordersAtPrice);

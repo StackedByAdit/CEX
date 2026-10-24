@@ -64,8 +64,8 @@ export function initWS(port: number) {
                         ws.send(JSON.stringify({
                             type: "ORDERBOOK_SNAPSHOT",
                             symbol,
-                            bids: firm.bids,
-                            asks: firm.asks,
+                            bids: Object.fromEntries(firm.bids.entries()),
+                            asks: Object.fromEntries(firm.asks.entries()),
                         }));
                     }
                 }

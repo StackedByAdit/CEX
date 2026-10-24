@@ -53,13 +53,9 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
 
     if (order.side === "BUY") {
 
-        const askPrices = Object.keys(firm.asks).map(Number).sort((a, b) => a - b);
-
-        for (const price of askPrices) {
+        for (const [price, ordersAtPrice] of firm.asks.entries()) {
 
             if (order.type === "LIMIT" && price > order.price!) break;
-
-            const ordersAtPrice = firm.asks[price];
             if (!ordersAtPrice) continue;
 
             while (ordersAtPrice.length > 0 && order.filledQuantity < order.quantity) {
@@ -85,8 +81,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 sellerStock.locked -= tradeQty;
                 sellerInr.available += tradeQuote;
 
-
-
                 fillRecords.push({
                     buyOrderId: order.id,
                     sellOrderId: sellOrder.id,
@@ -103,19 +97,15 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 if (order.filledQuantity === order.quantity) break;
             }
 
-            if (ordersAtPrice.length === 0) delete firm.asks[price];
+            if (ordersAtPrice.length === 0) firm.asks.delete(price);
             if (order.filledQuantity === order.quantity) break;
         }
 
     } else {
 
-        const bidPrices = Object.keys(firm.bids).map(Number).sort((a, b) => b - a);
-
-        for (const price of bidPrices) {
+        for (const [price, ordersAtPrice] of firm.bids.entriesReversed()) {
 
             if (order.type === "LIMIT" && price < order.price!) break;
-
-            const ordersAtPrice = firm.bids[price];
             if (!ordersAtPrice) continue;
 
             while (ordersAtPrice.length > 0 && order.filledQuantity < order.quantity) {
@@ -142,8 +132,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 sellerStock.locked -= tradeQty;
                 sellerInr.available += tradeQuote;
 
-
-
                 fillRecords.push({
                     buyOrderId: buyOrder.id,
                     sellOrderId: order.id,
@@ -160,19 +148,19 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 if (order.filledQuantity === order.quantity) break;
             }
 
-            if (ordersAtPrice.length === 0) delete firm.bids[price];
+            if (ordersAtPrice.length === 0) firm.bids.delete(price);
             if (order.filledQuantity === order.quantity) break;
         }
     }
 
     if (order.filledQuantity < order.quantity && order.type === "LIMIT") {
-        if (order.side === "BUY") {
-            if (!firm.bids[order.price!]) firm.bids[order.price!] = [];
-            firm.bids[order.price!]!.push(order);
-        } else {
-            if (!firm.asks[order.price!]) firm.asks[order.price!] = [];
-            firm.asks[order.price!]!.push(order);
+        const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
+        let ordersAtPrice = bookSide.get(order.price!);
+        if (!ordersAtPrice) {
+            ordersAtPrice = [];
+            bookSide.set(order.price!, ordersAtPrice);
         }
+        ordersAtPrice.push(order);
     }
 
     const actualQuote = fills.reduce((sum, fill) => sum + roundInr(fill.price * fill.quantity), 0);
@@ -187,8 +175,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 const buyerInr = getBalance(order.userId, "INR");
                 buyerInr.locked -= refundQuote;
                 buyerInr.available += refundQuote;
-
-
             }
 
             order.lockedQuoteAmount = undefined;
@@ -198,8 +184,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 const sellerStock = getBalance(order.userId, order.symbol);
                 sellerStock.locked -= unfilledQty;
                 sellerStock.available += unfilledQty;
-
-
             }
         }
     }

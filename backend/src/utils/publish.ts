@@ -7,8 +7,8 @@ export function publishOrderbook(symbol: string) {
 
     void publisher.publish(`orderbook:${symbol}`, JSON.stringify({
         symbol,
-        bids: firm.bids,
-        asks: firm.asks,
+        bids: Object.fromEntries(firm.bids.entries()),
+        asks: Object.fromEntries(firm.asks.entries()),
     })).catch(err => console.error("Orderbook publish error:", err));
 }
 

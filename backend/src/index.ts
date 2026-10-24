@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
-import bcrypt from "bcrypt"
+import bcrypt from "bcrypt";
+import BTree from "sorted-btree";
 import { prisma } from "./prisma";
 import { AssetType } from "../generated/prisma/client";
 import type { OrderStatus } from "../generated/prisma/client";
@@ -234,7 +235,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     }
 
     if (!ORDERBOOK[symbol]) {
-        ORDERBOOK[symbol] = { bids: {}, asks: {} };
+        ORDERBOOK[symbol] = { bids: new BTree(), asks: new BTree() };
     }
 
     const stockId = stock.id;
@@ -384,14 +385,18 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
         ORDERS.push(newOrder);
 
         if (!ORDERBOOK[newOrder.symbol]) {
-            ORDERBOOK[newOrder.symbol] = { bids: {}, asks: {} };
+            ORDERBOOK[newOrder.symbol] = { bids: new BTree(), asks: new BTree() };
         }
         const firm = ORDERBOOK[newOrder.symbol]!;
         const bookSide = newOrder.side === "BUY" ? firm.bids : firm.asks;
         if (newOrder.price !== undefined) {
-            if (!bookSide[newOrder.price]) bookSide[newOrder.price] = [];
-            if (!bookSide[newOrder.price]!.some((entry) => entry.id === newOrder.id)) {
-                bookSide[newOrder.price]!.push(newOrder);
+            let list = bookSide.get(newOrder.price);
+            if (!list) {
+                list = [];
+                bookSide.set(newOrder.price, list);
+            }
+            if (!list.some((entry) => entry.id === newOrder.id)) {
+                list.push(newOrder);
             }
         }
         order = newOrder;
@@ -412,7 +417,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
     const firm = ORDERBOOK[order.symbol];
     if (firm) {
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
-        const ordersAtPrice = bookSide[order.price];
+        const ordersAtPrice = bookSide.get(order.price);
 
         if (ordersAtPrice) {
             const index = ordersAtPrice.findIndex(entry => entry.id === orderId);
@@ -420,7 +425,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             if (index !== -1) {
                 ordersAtPrice.splice(index, 1);
                 if (ordersAtPrice.length === 0) {
-                    delete bookSide[order.price];
+                    bookSide.delete(order.price);
                 }
             }
         }
@@ -500,7 +505,7 @@ app.get("/orderbook/:symbol", authMiddleware, async (req: CustomRequest, res: Re
     }
 
     const bids: Record<string, number> = {};
-    for (const [price, orders] of Object.entries(firm.bids)) {
+    for (const [price, orders] of firm.bids.entriesReversed()) {
         let total = 0;
         for (const order of orders) {
             total += order.quantity - order.filledQuantity;
@@ -509,7 +514,7 @@ app.get("/orderbook/:symbol", authMiddleware, async (req: CustomRequest, res: Re
     }
 
     const asks: Record<string, number> = {};
-    for (const [price, orders] of Object.entries(firm.asks)) {
+    for (const [price, orders] of firm.asks.entries()) {
         let total = 0;
         for (const order of orders) {
             total += order.quantity - order.filledQuantity;
@@ -630,7 +635,7 @@ async function bootstrap() {
     for (const stock of stocks) {
         STOCK_BY_SYMBOL[stock.symbol] = { id: stock.id };
         if (!ORDERBOOK[stock.symbol]) {
-            ORDERBOOK[stock.symbol] = { bids: {}, asks: {} };
+            ORDERBOOK[stock.symbol] = { bids: new BTree(), asks: new BTree() };
         }
     }
 

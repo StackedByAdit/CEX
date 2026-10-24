@@ -4,6 +4,7 @@ import type { MemoryOrder } from "../types/order";
 import { estimateMarketBuy, estimateMarketSell, roundInr, walkAsks, walkBids } from "./marketOrder";
 import { matchOrder } from "./matchOrder";
 import { BALANCES } from "../state";
+import BTree from "sorted-btree";
 
 function makeOrder(partial: Partial<MemoryOrder> & Pick<MemoryOrder, "id" | "userId" | "side" | "symbol">): MemoryOrder {
     return {
@@ -16,16 +17,15 @@ function makeOrder(partial: Partial<MemoryOrder> & Pick<MemoryOrder, "id" | "use
 }
 
 function seedBook(symbol: string) {
-    ORDERBOOK[symbol] = {
-        asks: {
-            100: [makeOrder({ id: "ask-1", userId: "seller-1", side: "SELL", symbol, price: 100, quantity: 2 })],
-            102: [makeOrder({ id: "ask-2", userId: "seller-2", side: "SELL", symbol, price: 102, quantity: 3 })],
-        },
-        bids: {
-            98: [makeOrder({ id: "bid-1", userId: "buyer-1", side: "BUY", symbol, price: 98, quantity: 4 })],
-            95: [makeOrder({ id: "bid-2", userId: "buyer-2", side: "BUY", symbol, price: 95, quantity: 2 })],
-        },
-    };
+    const asks = new BTree<number, MemoryOrder[]>();
+    asks.set(100, [makeOrder({ id: "ask-1", userId: "seller-1", side: "SELL", symbol, price: 100, quantity: 2 })]);
+    asks.set(102, [makeOrder({ id: "ask-2", userId: "seller-2", side: "SELL", symbol, price: 102, quantity: 3 })]);
+
+    const bids = new BTree<number, MemoryOrder[]>();
+    bids.set(98, [makeOrder({ id: "bid-1", userId: "buyer-1", side: "BUY", symbol, price: 98, quantity: 4 })]);
+    bids.set(95, [makeOrder({ id: "bid-2", userId: "buyer-2", side: "BUY", symbol, price: 95, quantity: 2 })]);
+
+    ORDERBOOK[symbol] = { asks, bids };
 }
 
 beforeEach(() => {
@@ -64,7 +64,7 @@ describe("marketOrder utils", () => {
     });
 
     test("empty book returns zero liquidity", () => {
-        ORDERBOOK.SOL = { asks: {}, bids: {} };
+        ORDERBOOK.SOL = { asks: new BTree(), bids: new BTree() };
         expect(walkAsks("SOL", 1).fillableQuantity).toBe(0);
         expect(walkBids("SOL", 1).fillableQuantity).toBe(0);
     });
@@ -141,11 +141,12 @@ describe("matchOrder market refunds", () => {
     });
 
     test("limit buy fully fills resting limit sell", () => {
+        const asks = new BTree<number, MemoryOrder[]>();
+        const restingSell = makeOrder({ id: "ask-1", userId: "seller-1", side: "SELL", symbol: "SOL", price: 102, quantity: 111 });
+        asks.set(102, [restingSell]);
         ORDERBOOK.SOL = {
-            asks: {
-                102: [makeOrder({ id: "ask-1", userId: "seller-1", side: "SELL", symbol: "SOL", price: 102, quantity: 111 })],
-            },
-            bids: {},
+            asks,
+            bids: new BTree(),
         };
         BALANCES.buyer = {
             INR: { available: 0, locked: 12000, balanceId: "inr-buyer" },
@@ -156,7 +157,6 @@ describe("matchOrder market refunds", () => {
             SOL: { available: 0, locked: 111, balanceId: "sol-s1" },
         };
 
-        const sellOrder = ORDERBOOK.SOL.asks[102]![0]!;
         const buyOrder = makeOrder({
             id: "buy-1",
             userId: "buyer",
@@ -170,8 +170,8 @@ describe("matchOrder market refunds", () => {
 
         expect(result.status).toBe("FILLED");
         expect(result.filledQuantity).toBe(111);
-        expect(sellOrder.status).toBe("FILLED");
-        expect(sellOrder.filledQuantity).toBe(111);
-        expect(ORDERBOOK.SOL.asks[102]).toBeUndefined();
+        expect(restingSell.status).toBe("FILLED");
+        expect(restingSell.filledQuantity).toBe(111);
+        expect(ORDERBOOK.SOL.asks.get(102)).toBeUndefined();
     });
 });
