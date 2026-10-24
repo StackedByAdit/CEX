@@ -543,6 +543,8 @@ app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) =>
 
 app.get("/trades/personal", authMiddleware, async (req: CustomRequest, res: Response) => {
     try {
+        await flushDbBuffer();
+
         const userId = req.id!;
         const fills = await prisma.fill.findMany({
             where: {
@@ -572,7 +574,9 @@ app.get("/trades/personal", authMiddleware, async (req: CustomRequest, res: Resp
                 quantity: fill.quantity,
                 createdAt: fill.createdAt,
                 side,
-                symbol: fill.stock.symbol
+                symbol: fill.stock.symbol,
+                buyOrder: fill.buyOrder,
+                sellOrder: fill.sellOrder,
             };
         });
 
@@ -584,6 +588,7 @@ app.get("/trades/personal", authMiddleware, async (req: CustomRequest, res: Resp
 });
 
 app.get("/trades/:symbol", authMiddleware, async (req: CustomRequest, res: Response) => {
+    await flushDbBuffer();
     const fills = await prisma.fill.findMany({
         where: { stock: { symbol: req.params.symbol as string } },
         orderBy: { createdAt: "desc" },
