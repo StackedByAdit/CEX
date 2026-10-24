@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 
 function getUtcTime() {
   const now = new Date();
-  return now.toISOString().slice(11, 19);
+  const iso = now.toISOString();
+  return {
+    date: iso.slice(0, 10),
+    time: iso.slice(11, 19),
+  };
 }
 
 export default function Footer() {
@@ -29,7 +33,10 @@ export default function Footer() {
           <span className="h-1.5 w-1.5 rounded-full bg-orbit-green" />
           SYSTEM STATUS: OPERATIONAL
         </span>
-        <span className="font-mono">{utc} UTC</span>
+        <span className="font-mono tabular-nums text-orbit-secondary">
+          <span className="hidden sm:inline">{utc.date} </span>
+          {utc.time} UTC
+        </span>
       </div>
     </footer>
   );
