@@ -21,7 +21,8 @@ import { estimateMarketBuy, estimateMarketSell, roundInr, roundQty } from "./uti
 import { restoreOpenOrders } from "./utils/orderSync";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
-import { executeOrder, runWorker } from "./worker";
+import { runWorker } from "./worker";
+import { redisClient, resultClient } from "./redis";
 import { flushDbBuffer, queueBalanceUpdate, queueOrderUpsert } from "./utils/dbBuffer";
 import {
     buildClearCookieHeader,
@@ -319,7 +320,12 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         lockedQuoteAmount,
     };
 
-    const result = await executeOrder(currOrder, stockId);
+    await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId }));
+    const rawResult = await resultClient.brpop(`result:${orderId}`, 5);
+    if (!rawResult) {
+        return res.status(504).json({ message: "Order processing timeout" });
+    }
+    const result = JSON.parse(rawResult[1]);
 
     return res.status(200).json({
         orderId,
