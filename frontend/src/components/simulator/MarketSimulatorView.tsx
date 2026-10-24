@@ -1,30 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Stock } from "../../types";
-import MarketSimulator from "../../lib/simulator/marketSimulator";
-import type { LogEntry, SimulatorStats } from "../../lib/simulator/marketSimulator";
+import { useSimulator } from "../../lib/simulator/useSimulator";
+import type { Speed, Aggression } from "../../lib/simulator/simulatorService";
+import {
+  Activity,
+  Bot,
+  CheckCircle2,
+  Gauge,
+  Play,
+  RotateCcw,
+  Square,
+  Terminal,
+  TrendingUp,
+  XCircle,
+  Zap,
+} from "lucide-react";
 
 interface Props {
   symbol: string;
   stocks: Stock[];
 }
-
-type Speed = "slow" | "normal" | "fast";
-type Aggression = "passive" | "mixed" | "aggressive";
-
-const SPEED_MAP: Record<Speed, number> = {
-  slow: 3000,
-  normal: 1500,
-  fast: 500,
-};
-
-const DEFAULT_STATS: SimulatorStats = {
-  ordersPlaced: 0,
-  fills: 0,
-  errors: 0,
-  startedAt: 0,
-  tpsHistory: new Array(30).fill(0),
-  activeBots: 0,
-};
 
 function formatUptime(startedAt: number): string {
   if (!startedAt) return "—";
@@ -37,62 +32,40 @@ function formatUptime(startedAt: number): string {
   return `${s}s`;
 }
 
-export default function MarketSimulatorView({ symbol, stocks }: Props) {
-  const [isRunning, setIsRunning] = useState(false);
-  const [botCount, setBotCount] = useState(5);
-  const [speed, setSpeed] = useState<Speed>("normal");
-  const [aggression, setAggression] = useState<Aggression>("mixed");
-  const [stats, setStats] = useState<SimulatorStats>(DEFAULT_STATS);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [, setTick] = useState(0); // for uptime re-render
+export default function MarketSimulatorView({ symbol: defaultSymbol, stocks }: Props) {
+  const {
+    isRunning,
+    botCount,
+    symbol,
+    speed,
+    aggression,
+    stats,
+    logs,
+    start,
+    stop,
+    setBotCount,
+    setSymbol,
+    setSpeed,
+    setAggression,
+    clearLogs,
+  } = useSimulator();
 
-  const simulatorRef = useRef<MarketSimulator | null>(null);
-  const [activeSymbol, setActiveSymbol] = useState(symbol);
+  const [, setTick] = useState(0);
+  const [logFilter, setLogFilter] = useState<"all" | "orders" | "fills" | "errors">("all");
 
-  // Uptime ticker
+  // Keep uptime fresh every second
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(interval);
   }, [isRunning]);
 
-  // Cleanup on unmount
+  // Set default symbol if not already set
   useEffect(() => {
-    return () => {
-      simulatorRef.current?.stop();
-    };
-  }, []);
-
-  const handleStart = async () => {
-    if (simulatorRef.current) simulatorRef.current.stop();
-
-    const sim = new MarketSimulator(
-      {
-        botCount,
-        symbol: activeSymbol,
-        intervalMs: SPEED_MAP[speed],
-        aggression,
-      },
-      (entry: LogEntry) => {
-        setLogs((prev) => [entry, ...prev].slice(0, 200));
-      },
-      (s: SimulatorStats) => {
-        setStats({ ...s });
-      },
-    );
-
-    simulatorRef.current = sim;
-    setIsRunning(true);
-    setLogs([]);
-    setStats(DEFAULT_STATS);
-    await sim.start();
-  };
-
-  const handleStop = () => {
-    simulatorRef.current?.stop();
-    simulatorRef.current = null;
-    setIsRunning(false);
-  };
+    if (!symbol && defaultSymbol) {
+      setSymbol(defaultSymbol);
+    }
+  }, [symbol, defaultSymbol, setSymbol]);
 
   const fillRate =
     stats.ordersPlaced > 0
@@ -102,251 +75,458 @@ export default function MarketSimulatorView({ symbol, stocks }: Props) {
   const currentTps = stats.tpsHistory[stats.tpsHistory.length - 1] ?? 0;
   const maxTps = Math.max(...stats.tpsHistory, 1);
 
+  const filteredLogs = logs.filter((log) => {
+    if (logFilter === "all") return true;
+    if (logFilter === "fills") return log.detail.includes("FILLED") || log.action === "DEPOSIT";
+    if (logFilter === "orders") return log.action.includes("LIMIT") || log.action.includes("MARKET");
+    if (logFilter === "errors") return !log.ok;
+    return true;
+  });
+
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0f1117] text-white">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-semibold tracking-tight">⚡ Market Simulator</span>
-            {isRunning ? (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2.5 py-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                LIVE
-              </span>
-            ) : (
-              <span className="text-xs font-medium text-orbit-secondary bg-white/5 border border-white/10 rounded-full px-2.5 py-0.5">
-                OFF
-              </span>
-            )}
+    <div className="flex flex-col h-full w-full overflow-hidden bg-[#0a0c10] text-white">
+      {/* ── Top Header Bar ── */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-white/[0.02] px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+            <Zap size={18} />
           </div>
-          <p className="text-xs text-orbit-secondary mt-0.5">
-            Stress-test the exchange with simultaneous bot traders
-          </p>
-        </div>
-
-        {/* Warning badge */}
-        <div className="hidden sm:flex items-center gap-1.5 text-xs text-yellow-400/80 bg-yellow-400/5 border border-yellow-400/15 rounded-lg px-3 py-1.5">
-          <span>⚠️</span>
-          <span>Creates real bot accounts &amp; places real orders</span>
-        </div>
-      </div>
-
-      {/* ── Controls ── */}
-      <div className="px-6 py-4 border-b border-white/10 shrink-0 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Trader count */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-orbit-secondary uppercase tracking-wide">
-                Traders
-              </label>
-              <span className="text-sm font-semibold text-white tabular-nums">{botCount}</span>
-            </div>
-            <input
-              type="range"
-              min={2}
-              max={50}
-              step={1}
-              value={botCount}
-              disabled={isRunning}
-              onChange={(e) => setBotCount(Number(e.target.value))}
-              className="w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40
-                bg-white/10 accent-indigo-400"
-            />
-            <div className="flex justify-between text-[10px] text-orbit-secondary">
-              <span>2</span>
-              <span>50</span>
-            </div>
-          </div>
-
-          {/* Symbol */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-orbit-secondary uppercase tracking-wide block">
-              Symbol
-            </label>
-            <select
-              value={activeSymbol}
-              disabled={isRunning}
-              onChange={(e) => setActiveSymbol(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white
-                focus:outline-none focus:border-indigo-400/50 disabled:opacity-40 disabled:cursor-not-allowed
-                cursor-pointer"
-            >
-              {stocks.length === 0 ? (
-                <option value={symbol}>{symbol}</option>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="text-sm font-bold tracking-tight">Market Simulation Command Center</span>
+              {isRunning ? (
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2.5 py-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  SIMULATION ACTIVE
+                </span>
               ) : (
-                stocks.map((s) => (
-                  <option key={s.symbol} value={s.symbol}>
-                    {s.symbol}
-                  </option>
-                ))
+                <span className="text-[11px] font-medium text-orbit-secondary bg-white/5 border border-white/10 rounded-full px-2.5 py-0.5">
+                  IDLE
+                </span>
               )}
-            </select>
-          </div>
-
-          {/* Speed */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-orbit-secondary uppercase tracking-wide block">
-              Speed
-            </label>
-            <div className="flex rounded-lg overflow-hidden border border-white/10">
-              {(["slow", "normal", "fast"] as Speed[]).map((s) => (
-                <button
-                  key={s}
-                  disabled={isRunning}
-                  onClick={() => setSpeed(s)}
-                  className={`flex-1 py-2 text-xs font-medium capitalize transition-colors disabled:cursor-not-allowed
-                    ${speed === s
-                      ? "bg-indigo-500/20 text-indigo-300 border-indigo-400/30"
-                      : "text-orbit-secondary hover:bg-white/5 hover:text-white disabled:opacity-40"
-                    }`}
-                >
-                  {s}
-                </button>
-              ))}
             </div>
-          </div>
-
-          {/* Aggression */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-orbit-secondary uppercase tracking-wide block">
-              Aggression
-            </label>
-            <div className="flex rounded-lg overflow-hidden border border-white/10">
-              {(["passive", "mixed", "aggressive"] as Aggression[]).map((a) => (
-                <button
-                  key={a}
-                  disabled={isRunning}
-                  onClick={() => setAggression(a)}
-                  className={`flex-1 py-2 text-xs font-medium capitalize transition-colors disabled:cursor-not-allowed
-                    ${aggression === a
-                      ? a === "aggressive"
-                        ? "bg-red-500/20 text-red-300"
-                        : a === "mixed"
-                        ? "bg-yellow-500/20 text-yellow-300"
-                        : "bg-emerald-500/20 text-emerald-300"
-                      : "text-orbit-secondary hover:bg-white/5 hover:text-white disabled:opacity-40"
-                    }`}
-                >
-                  {a === "passive" ? "Pasv" : a === "mixed" ? "Mix" : "Aggr"}
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-orbit-secondary">
+              Stress-test the orderbook matching engine with concurrent autonomous trader bots
+            </p>
           </div>
         </div>
 
-        {/* Start / Stop */}
-        <div className="flex gap-3">
+        {/* Quick actions in header */}
+        <div className="flex items-center gap-4">
+          {isRunning && (
+            <div className="hidden md:flex items-center gap-4 text-xs text-orbit-secondary bg-white/[0.03] border border-white/10 rounded-lg px-3 py-1.5">
+              <span className="flex items-center gap-1.5">
+                <Bot size={13} className="text-indigo-400" />
+                <span className="font-semibold text-white">{stats.activeBots}</span> bots
+              </span>
+              <span className="text-white/20">|</span>
+              <span className="flex items-center gap-1.5">
+                <Gauge size={13} className="text-emerald-400" />
+                <span className="font-semibold text-white">{currentTps}</span> orders/s
+              </span>
+              <span className="text-white/20">|</span>
+              <span>Uptime: <strong className="text-white">{formatUptime(stats.startedAt)}</strong></span>
+            </div>
+          )}
+
           {!isRunning ? (
             <button
-              onClick={handleStart}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500
-                text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
+              onClick={() => void start()}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-semibold rounded-lg shadow-lg shadow-indigo-500/20 transition-all cursor-pointer"
             >
-              <span>▶</span> Start Simulation
+              <Play size={13} fill="currentColor" />
+              <span>Start Simulation</span>
             </button>
           ) : (
             <button
-              onClick={handleStop}
-              className="flex items-center gap-2 px-5 py-2.5 bg-red-600/80 hover:bg-red-600
-                text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
+              onClick={stop}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-red-500/20 transition-all cursor-pointer"
             >
-              <span>■</span> Stop Simulation
+              <Square size={13} fill="currentColor" />
+              <span>Stop Simulation</span>
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* ── Stats Grid ── */}
-      <div className="px-6 py-4 border-b border-white/10 shrink-0">
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-          {[
-            { label: "Active Bots", value: isRunning ? stats.activeBots : "—" },
-            { label: "Orders/sec", value: isRunning ? currentTps : "—" },
-            { label: "Total Orders", value: stats.ordersPlaced },
-            { label: "Fill Rate", value: fillRate },
-            { label: "Errors", value: stats.errors, warn: stats.errors > 0 },
-            { label: "Uptime", value: isRunning ? formatUptime(stats.startedAt) : "—" },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="bg-white/[0.03] border border-white/8 rounded-xl px-3 py-3 flex flex-col gap-1"
-            >
-              <span className="text-[10px] font-medium text-orbit-secondary uppercase tracking-wide">
-                {item.label}
+      {/* ── Main Two-Column Layout ── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* ── Left Column: Configuration & Metrics ── */}
+        <div className="w-[52%] xl:w-[48%] flex flex-col min-h-0 border-r border-white/10 overflow-y-auto p-6 space-y-6">
+          {/* Controls Card */}
+          <div className="rounded-2xl border border-white/10 bg-[#10131c]/60 p-5 space-y-5">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <span className="text-xs font-semibold tracking-wide uppercase text-orbit-secondary flex items-center gap-2">
+                <Bot size={14} className="text-indigo-400" />
+                Bot Swarm Parameters
               </span>
-              <span
-                className={`text-lg font-bold tabular-nums ${
-                  item.warn ? "text-red-400" : "text-white"
-                }`}
-              >
-                {item.value}
+              <span className="text-[11px] text-yellow-400/90 bg-yellow-400/10 border border-yellow-400/20 rounded-md px-2 py-0.5">
+                Liquidity-Aware Matching
               </span>
             </div>
-          ))}
-        </div>
 
-        {/* TPS Sparkline */}
-        <div className="mt-3">
-          <div className="text-[10px] text-orbit-secondary uppercase tracking-wide mb-1.5">
-            Orders/sec — last 30s
-          </div>
-          <div className="flex items-end gap-px h-10">
-            {stats.tpsHistory.map((val, i) => {
-              const h = Math.max(2, Math.round((val / maxTps) * 40));
-              return (
-                <div
-                  key={i}
-                  style={{ height: `${h}px` }}
-                  className="flex-1 rounded-sm bg-indigo-500/60 transition-all duration-300"
-                />
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Activity Log ── */}
-      <div className="flex flex-col flex-1 min-h-0 px-6 py-4">
-        <div className="flex items-center justify-between mb-2 shrink-0">
-          <span className="text-[10px] font-medium text-orbit-secondary uppercase tracking-wide">
-            Activity Log
-          </span>
-          {logs.length > 0 && (
-            <button
-              onClick={() => setLogs([])}
-              className="text-[10px] text-orbit-secondary hover:text-white transition-colors cursor-pointer"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-[#080a0f] border border-white/8 p-3 font-mono text-xs space-y-0.5">
-          {logs.length === 0 ? (
-            <div className="text-orbit-secondary/50 text-center py-8">
-              {isRunning ? "Waiting for bot activity…" : "Start the simulation to see activity"}
-            </div>
-          ) : (
-            logs.map((entry, i) => (
-              <div
-                key={i}
-                className={`flex gap-2 leading-5 ${
-                  entry.ok ? "text-emerald-400/90" : "text-red-400/90"
-                }`}
-              >
-                <span className="text-white/30 shrink-0">[{entry.time}]</span>
-                <span className="text-indigo-400/80 shrink-0">
-                  bot-{String(entry.botId).padStart(2, "0")}
-                </span>
-                <span className={`shrink-0 font-semibold ${entry.ok ? "text-emerald-300" : "text-red-300"}`}>
-                  {entry.action}
-                </span>
-                <span className="text-white/60 truncate">{entry.detail}</span>
-                <span className="shrink-0">{entry.ok ? "✓" : "✗"}</span>
+            {/* Slider: Number of Traders */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-medium text-white block">Trader Swarm Size</span>
+                  <span className="text-[11px] text-orbit-secondary">Number of concurrent bot accounts trading in parallel</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-indigo-400 tabular-nums">{botCount}</span>
+                  <span className="text-xs text-orbit-secondary">traders</span>
+                </div>
               </div>
-            ))
-          )}
+
+              <input
+                type="range"
+                min={2}
+                max={50}
+                step={1}
+                value={botCount}
+                disabled={isRunning}
+                onChange={(e) => setBotCount(Number(e.target.value))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-white/10 accent-indigo-500"
+              />
+
+              <div className="flex items-center justify-between text-[10px] text-orbit-secondary pt-1">
+                <span>2 bots (light test)</span>
+                {/* Presets */}
+                <div className="flex items-center gap-1.5">
+                  {[5, 15, 30, 50].map((num) => (
+                    <button
+                      key={num}
+                      disabled={isRunning}
+                      onClick={() => setBotCount(num)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer disabled:opacity-30 ${
+                        botCount === num
+                          ? "bg-indigo-500 text-white"
+                          : "bg-white/5 text-orbit-secondary hover:text-white"
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+                <span>50 bots (stress test)</span>
+              </div>
+            </div>
+
+            {/* Configuration Row */}
+            <div className="grid grid-cols-3 gap-3 pt-2">
+              {/* Symbol */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-orbit-secondary uppercase tracking-wide block">
+                  Asset Pair
+                </label>
+                <select
+                  value={symbol}
+                  disabled={isRunning}
+                  onChange={(e) => setSymbol(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-40 cursor-pointer"
+                >
+                  {stocks.length === 0 ? (
+                    <option value={symbol}>{symbol}</option>
+                  ) : (
+                    stocks.map((s) => (
+                      <option key={s.symbol} value={s.symbol} className="bg-[#12141d] text-white">
+                        {s.symbol} ({s.title ?? "Stock"})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Speed */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-orbit-secondary uppercase tracking-wide block">
+                  Pacing
+                </label>
+                <div className="flex rounded-xl overflow-hidden border border-white/10 bg-white/5 p-0.5">
+                  {(["slow", "normal", "fast"] as Speed[]).map((s) => (
+                    <button
+                      key={s}
+                      disabled={isRunning}
+                      onClick={() => setSpeed(s)}
+                      className={`flex-1 py-1.5 text-[11px] font-medium capitalize rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                        speed === s
+                          ? "bg-indigo-500 text-white shadow-sm"
+                          : "text-orbit-secondary hover:text-white disabled:opacity-40"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Aggression */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-orbit-secondary uppercase tracking-wide block">
+                  Aggression
+                </label>
+                <div className="flex rounded-xl overflow-hidden border border-white/10 bg-white/5 p-0.5">
+                  {(["passive", "mixed", "aggressive"] as Aggression[]).map((a) => (
+                    <button
+                      key={a}
+                      disabled={isRunning}
+                      onClick={() => setAggression(a)}
+                      className={`flex-1 py-1.5 text-[11px] font-medium capitalize rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                        aggression === a
+                          ? a === "aggressive"
+                            ? "bg-red-500 text-white"
+                            : a === "mixed"
+                            ? "bg-indigo-500 text-white"
+                            : "bg-emerald-500 text-white"
+                          : "text-orbit-secondary hover:text-white disabled:opacity-40"
+                      }`}
+                    >
+                      {a === "passive" ? "Pasv" : a === "mixed" ? "Mix" : "Aggr"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Simplified 1-Sentence Status Bar ── */}
+          <div
+            className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-xs border transition-all duration-200 ${
+              !isRunning
+                ? "bg-white/[0.02] border-white/10 text-orbit-secondary"
+                : stats.activeBots === 0
+                ? "bg-amber-500/10 border-amber-500/25 text-amber-300"
+                : stats.ordersPlaced === 0
+                ? "bg-blue-500/10 border-blue-500/25 text-blue-300"
+                : "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
+            }`}
+          >
+            <div className="shrink-0 flex items-center justify-center w-3 h-3">
+              {!isRunning ? (
+                <span className="w-2.5 h-2.5 rounded-full bg-white/30 block" />
+              ) : stats.activeBots === 0 ? (
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping block" />
+              ) : stats.ordersPlaced === 0 ? (
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse block" />
+              ) : (
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse block" />
+              )}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <span className="font-bold uppercase tracking-wider text-[11px] mr-2">
+                {!isRunning
+                  ? "Standby:"
+                  : stats.activeBots === 0
+                  ? "Initializing Swarm:"
+                  : stats.ordersPlaced === 0
+                  ? "Warming Up:"
+                  : "Live Execution:"}
+              </span>
+              <span className="text-xs">
+                {!isRunning
+                  ? `Choose trader count and settings above, then press Start Simulation to deploy ${botCount} bots.`
+                  : stats.activeBots === 0
+                  ? `Authenticating & funding ${botCount} trader accounts with test INR and ${symbol}... please wait.`
+                  : stats.ordersPlaced === 0
+                  ? `${stats.activeBots} bots authenticated — inspecting orderbook depth and placing first trades...`
+                  : `${stats.activeBots} bots actively placing concurrent orders on ${symbol} at ${currentTps} orders/sec.`}
+              </span>
+            </div>
+          </div>
+
+          {/* Metrics Grid */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold tracking-wide uppercase text-orbit-secondary flex items-center gap-2">
+                <Activity size={14} className="text-emerald-400" />
+                Real-Time Exchange Throughput
+              </span>
+              <span className="text-[11px] text-orbit-secondary">Auto-refreshes every tick</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                {
+                  label: "Active Bot Traders",
+                  value: isRunning ? stats.activeBots : "0",
+                  sub: `of ${botCount} configured`,
+                  accent: "text-indigo-400",
+                },
+                {
+                  label: "Orders / Sec (TPS)",
+                  value: isRunning ? currentTps : "0",
+                  sub: `Peak: ${Math.max(...stats.tpsHistory, 0)} TPS`,
+                  accent: "text-emerald-400",
+                },
+                {
+                  label: "Total Orders Placed",
+                  value: stats.ordersPlaced.toLocaleString(),
+                  sub: "Both limit & market",
+                  accent: "text-white",
+                },
+                {
+                  label: "Order Fill Rate",
+                  value: fillRate,
+                  sub: `${stats.fills.toLocaleString()} fills matched`,
+                  accent: "text-purple-400",
+                },
+                {
+                  label: "Matching Errors",
+                  value: stats.errors,
+                  sub: stats.errors === 0 ? "Zero errors" : "Rejections",
+                  accent: stats.errors > 0 ? "text-red-400" : "text-white",
+                },
+                {
+                  label: "Session Duration",
+                  value: isRunning ? formatUptime(stats.startedAt) : "—",
+                  sub: isRunning ? "Running live" : "Standby",
+                  accent: "text-white",
+                },
+              ].map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-2xl border border-white/8 bg-[#10131c]/50 p-4 flex flex-col justify-between"
+                >
+                  <span className="text-[10px] font-semibold tracking-wider uppercase text-orbit-secondary">
+                    {card.label}
+                  </span>
+                  <div className="my-2">
+                    <span className={`text-2xl font-bold tracking-tight tabular-nums ${card.accent}`}>
+                      {card.value}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-orbit-secondary truncate">{card.sub}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* TPS Sparkline Chart */}
+          <div className="rounded-2xl border border-white/10 bg-[#10131c]/60 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp size={14} className="text-indigo-400" />
+                <span className="text-xs font-semibold uppercase tracking-wide text-white">
+                  Throughput Velocity (Last 30 Seconds)
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-orbit-secondary">Current: <strong className="text-white">{currentTps} TPS</strong></span>
+                <span className="text-orbit-secondary">Peak: <strong className="text-indigo-400">{maxTps} TPS</strong></span>
+              </div>
+            </div>
+
+            {/* Sparkline Bars */}
+            <div className="flex items-end gap-1.5 h-16 pt-2">
+              {stats.tpsHistory.map((val, idx) => {
+                const heightPct = Math.max(8, Math.round((val / maxTps) * 100));
+                return (
+                  <div
+                    key={idx}
+                    className="flex-1 flex flex-col items-center justify-end h-full group relative"
+                  >
+                    <div
+                      style={{ height: `${heightPct}%` }}
+                      className={`w-full rounded-sm transition-all duration-300 ${
+                        val > 0
+                          ? "bg-gradient-to-t from-indigo-600 to-indigo-400 group-hover:from-indigo-400 group-hover:to-indigo-300"
+                          : "bg-white/5"
+                      }`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right Column: Full-Height Live Activity Stream ── */}
+        <div className="flex-1 flex flex-col min-h-0 bg-[#07090e] p-6">
+          <div className="flex items-center justify-between pb-3 shrink-0 border-b border-white/10">
+            <div className="flex items-center gap-2.5">
+              <Terminal size={16} className="text-indigo-400" />
+              <span className="text-sm font-semibold tracking-wide text-white">Live Activity Stream</span>
+              <span className="text-[11px] text-orbit-secondary font-mono">({filteredLogs.length} events)</span>
+            </div>
+
+            {/* Filter Pills + Clear */}
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg overflow-hidden border border-white/10 bg-white/5 p-0.5 text-xs">
+                {(["all", "orders", "fills", "errors"] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setLogFilter(filter)}
+                    className={`px-2.5 py-1 text-[11px] font-medium capitalize rounded-md transition cursor-pointer ${
+                      logFilter === filter
+                        ? "bg-white/15 text-white font-semibold"
+                        : "text-orbit-secondary hover:text-white"
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              {logs.length > 0 && (
+                <button
+                  onClick={clearLogs}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/10 text-orbit-secondary hover:text-white hover:bg-white/5 text-xs transition cursor-pointer"
+                  title="Clear Log"
+                >
+                  <RotateCcw size={12} />
+                  <span>Clear</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Activity Terminal */}
+          <div className="flex-1 min-h-0 overflow-y-auto mt-4 rounded-2xl bg-[#04060a] border border-white/10 p-4 font-mono text-xs space-y-1.5">
+            {filteredLogs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-orbit-secondary/40 space-y-2 py-12">
+                <Terminal size={32} strokeWidth={1.5} />
+                <p className="text-xs">
+                  {isRunning ? "Waiting for new bot order events…" : "Start the simulation to stream live bot activity"}
+                </p>
+              </div>
+            ) : (
+              filteredLogs.map((entry, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-start gap-2.5 py-1 px-2 rounded-lg transition-colors hover:bg-white/[0.03] ${
+                    entry.ok ? "text-white/80" : "text-red-400/90 bg-red-500/5"
+                  }`}
+                >
+                  <span className="text-white/30 shrink-0 text-[11px]">[{entry.time}]</span>
+                  <span className="px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 font-semibold text-[11px] shrink-0 border border-indigo-500/20">
+                    bot-{String(entry.botId).padStart(2, "0")}
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[11px] font-bold shrink-0 ${
+                      entry.action.includes("BUY")
+                        ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                        : entry.action.includes("SELL")
+                        ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                        : "bg-white/10 text-orbit-secondary"
+                    }`}
+                  >
+                    {entry.action}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-[11px] text-white/70">
+                    {entry.detail}
+                  </span>
+                  <span className="shrink-0 text-xs">
+                    {entry.ok ? (
+                      <CheckCircle2 size={13} className="text-emerald-400" />
+                    ) : (
+                      <XCircle size={13} className="text-red-400" />
+                    )}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
