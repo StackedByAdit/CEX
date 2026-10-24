@@ -12,7 +12,7 @@ interface HistoryViewProps {
 }
 
 type MainTab = "trades" | "orders" | "funds";
-type OrderStatusFilter = "ALL" | "FILLED" | "CANCELLED" | "PENDING";
+type OrderStatusFilter = "ALL" | "FILLED" | "PARTIALLY_FILLED" | "PENDING" | "CANCELLED";
 type SideFilter = "ALL" | "BUY" | "SELL";
 
 function toNum(v: string | number | null | undefined) {
@@ -36,12 +36,21 @@ function StatusBadge({ status }: { status: string }) {
     FILLED: "bg-green-500/10 text-green-400 border-green-500/20",
     CANCELLED: "bg-red-500/10 text-red-400 border-red-500/20",
     PENDING: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    OPEN: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
     PARTIALLY_FILLED: "bg-orange-500/10 text-orange-400 border-orange-500/20",
   };
+  const labels: Record<string, string> = {
+    FILLED: "FILLED",
+    CANCELLED: "CANCELLED",
+    PENDING: "OPEN",
+    OPEN: "OPEN",
+    PARTIALLY_FILLED: "PARTIALLY FILLED",
+  };
   const style = styles[status] || "bg-white/10 text-white border-white/20";
+  const label = labels[status] || status;
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${style}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -287,8 +296,9 @@ export default function HistoryView({
                   className="bg-transparent text-white outline-none cursor-pointer"
                 >
                   <option value="ALL" className="bg-orbit-panel">All Statuses</option>
+                  <option value="PENDING" className="bg-orbit-panel">Open / Pending</option>
+                  <option value="PARTIALLY_FILLED" className="bg-orbit-panel">Partially Filled</option>
                   <option value="FILLED" className="bg-orbit-panel">Fulfilled</option>
-                  <option value="PENDING" className="bg-orbit-panel">Pending</option>
                   <option value="CANCELLED" className="bg-orbit-panel">Cancelled</option>
                 </select>
               </div>
