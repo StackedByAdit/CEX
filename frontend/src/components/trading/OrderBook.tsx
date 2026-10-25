@@ -11,11 +11,11 @@ function formatNum(n: number, decimals = 2) {
 }
 
 export default function OrderBook({ asks, bids, lastPrice }: OrderBookProps) {
-  const maxAskTotal = Math.max(...asks.map((a) => a.total), 1);
-  const maxBidTotal = Math.max(...bids.map((b) => b.total), 1);
-
   const displayAsks = [...asks].reverse().slice(-12);
   const displayBids = bids.slice(0, 12);
+
+  const maxAskTotal = Math.max(...displayAsks.map((a) => a.total), 1);
+  const maxBidTotal = Math.max(...displayBids.map((b) => b.total), 1);
 
   const lowestAsk = asks.length > 0 ? asks[0].price : null;
   const highestBid = bids.length > 0 ? bids[0].price : null;
@@ -83,27 +83,25 @@ function BookRow({
   side: "ask" | "bid";
   maxTotal: number;
 }) {
-  const depth = (level.total / maxTotal) * 100;
+  const depth = Math.min(Math.max((level.total / maxTotal) * 100, 2), 100);
   const isAsk = side === "ask";
 
   return (
     <div className="relative grid grid-cols-3 gap-2 px-3 py-[3px] text-xs tabular-nums hover:bg-white/5 transition-colors group cursor-pointer">
       <div
-        className="absolute inset-y-0 right-0 z-0 opacity-50 group-hover:opacity-80 transition-opacity"
+        className="absolute inset-y-0 right-0 z-0 pointer-events-none transition-all duration-150 opacity-90 group-hover:opacity-100"
         style={{
           width: `${depth}%`,
-          background: isAsk 
-            ? "linear-gradient(90deg, rgba(239, 68, 68, 0) 0%, rgba(239, 68, 68, 0.25) 100%)" 
-            : "linear-gradient(90deg, rgba(34, 197, 94, 0) 0%, rgba(34, 197, 94, 0.25) 100%)",
+          backgroundColor: isAsk ? "rgba(239, 68, 68, 0.22)" : "rgba(34, 197, 94, 0.22)",
         }}
       />
-      <span className={`relative z-10 ${isAsk ? "text-orbit-red" : "text-orbit-green"} font-medium`}>
+      <span className={`relative z-10 ${isAsk ? "text-red-400" : "text-emerald-400"} font-semibold`}>
         {formatNum(level.price)}
       </span>
-      <span className="relative z-10 text-right text-orbit-secondary">
+      <span className="relative z-10 text-right text-white/90">
         {formatNum(level.amount, 4)}
       </span>
-      <span className="relative z-10 text-right text-orbit-muted group-hover:text-orbit-secondary transition-colors">
+      <span className="relative z-10 text-right text-white/50 group-hover:text-white/80 transition-colors">
         {formatNum(level.total, 2)}
       </span>
     </div>
