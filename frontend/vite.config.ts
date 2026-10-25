@@ -10,6 +10,7 @@ export default defineConfig({
       "/signup": "http://localhost:3000",
       "/login": "http://localhost:3000",
       "/logout": "http://localhost:3000",
+      "/deposit": "http://localhost:3000",
       "/order": "http://localhost:3000",
       "/orders": "http://localhost:3000",
       "/orderbook": "http://localhost:3000",

@@ -9,6 +9,8 @@ import OrdersPanel from "../components/trading/OrdersPanel";
 import TickerBar from "../components/trading/TickerBar";
 import HistoryView from "../components/history/HistoryView";
 import WalletView from "../components/wallet/WalletView";
+import MarketSimulatorView from "../components/simulator/MarketSimulatorView";
+import SimulatorDropdown from "../components/simulator/SimulatorDropdown";
 import {
   fetchBalances,
   fetchOrderbook,
@@ -54,7 +56,8 @@ function buildLevels(
 }
 
 export default function TradePage() {
-  const [activeTab, setActiveTab] = useState<"spot" | "wallet" | "history">("spot");
+  const [activeTab, setActiveTab] = useState<"spot" | "wallet" | "history" | "simulator">("spot");
+  const [isSimulatorDropdownOpen, setIsSimulatorDropdownOpen] = useState(false);
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [symbol, setSymbol] = useState("AXIS");
   const [asks, setAsks] = useState<OrderbookLevel[]>([]);
@@ -242,7 +245,21 @@ export default function TradePage() {
         background: "#0a0a0a",
       }}
     >
-      <Navbar onSelectTab={setActiveTab} />
+      <Navbar
+        onSelectTab={setActiveTab}
+        onToggleSimulator={() => setIsSimulatorDropdownOpen((v) => !v)}
+        isSimulatorOpen={isSimulatorDropdownOpen}
+      />
+
+      <SimulatorDropdown
+        isOpen={isSimulatorDropdownOpen}
+        onClose={() => setIsSimulatorDropdownOpen(false)}
+        onOpenFullScreen={() => {
+          setActiveTab("simulator");
+          setIsSimulatorDropdownOpen(false);
+        }}
+        stocks={stocks}
+      />
 
       {/* Main area: sidebar + content */}
       <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -274,6 +291,8 @@ export default function TradePage() {
               void refreshBalances();
             }}
           />
+        ) : activeTab === "simulator" ? (
+          <MarketSimulatorView symbol={symbol} stocks={stocks} />
         ) : (
           /* Spot Trading Layout */
           <div
