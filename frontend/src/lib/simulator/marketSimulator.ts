@@ -32,8 +32,11 @@ interface SimBot {
   id: number;
   username: string;
   token: string | null;
-  funded: boolean;
+  fundedSymbols: Set<string>;
 }
+
+// In-memory cache for bot sessions across simulator restarts
+const BOT_SESSION_CACHE = new Map<number, SimBot>();
 
 interface PlaceOrderPayload {
   side: "BUY" | "SELL";
@@ -173,79 +176,121 @@ export class MarketSimulator {
 
   private async provisionBot(id: number): Promise<SimBot> {
     const username = `sim-bot-${id}`;
-    const bot: SimBot = { id, username, token: null, funded: false };
 
-    // 1. Signup (ignore 409 — user already exists)
-    try {
-      const signupRes = await fetch(`${BASE_URL}/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password: BOT_PASSWORD }),
-      });
-      if (!signupRes.ok && signupRes.status !== 409) {
-        const text = await signupRes.text();
+    let bot = BOT_SESSION_CACHE.get(id);
+    if (!bot) {
+      bot = { id, username, token: null, fundedSymbols: new Set() };
+    }
+
+    // 1. Try login first (fast path for already registered bots)
+    if (!bot.token) {
+      try {
+        const loginRes = await fetch(`${BASE_URL}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password: BOT_PASSWORD }),
+        });
+        if (loginRes.ok) {
+          const data = (await loginRes.json()) as { message: string; username: string; token: string };
+          bot.token = data.token;
+          this.onLog({
+            time: nowTime(),
+            botId: id,
+            action: "LOGIN",
+            detail: `Authenticated as ${username}`,
+            ok: true,
+          });
+        }
+      } catch {
+        // Will try signup below
+      }
+    }
+
+    // 2. If login failed (user doesn't exist yet in DB), try signup
+    if (!bot.token) {
+      try {
+        const signupRes = await fetch(`${BASE_URL}/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password: BOT_PASSWORD }),
+        });
+
+        // 400 with "User already exists" or 409 is expected if race condition occurs
+        if (!signupRes.ok && signupRes.status !== 400 && signupRes.status !== 409) {
+          const text = await signupRes.text();
+          this.onLog({
+            time: nowTime(),
+            botId: id,
+            action: "SIGNUP",
+            detail: `HTTP ${signupRes.status}: ${text.slice(0, 80)}`,
+            ok: false,
+          });
+        }
+      } catch (err) {
         this.onLog({
           time: nowTime(),
           botId: id,
           action: "SIGNUP",
-          detail: `HTTP ${signupRes.status}: ${text.slice(0, 80)}`,
+          detail: String(err),
           ok: false,
         });
       }
-    } catch (err) {
-      this.onLog({
-        time: nowTime(),
-        botId: id,
-        action: "SIGNUP",
-        detail: String(err),
-        ok: false,
-      });
-    }
 
-    // 2. Login to get token
-    try {
-      const loginRes = await fetch(`${BASE_URL}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password: BOT_PASSWORD }),
-      });
-      if (loginRes.ok) {
-        const data = (await loginRes.json()) as { message: string; username: string; token: string };
-        bot.token = data.token;
-        this.onLog({
-          time: nowTime(),
-          botId: id,
-          action: "LOGIN",
-          detail: `Authenticated as ${username}`,
-          ok: true,
+      // 3. Login after signup
+      try {
+        const loginRes = await fetch(`${BASE_URL}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password: BOT_PASSWORD }),
         });
-      } else {
-        const text = await loginRes.text();
+        if (loginRes.ok) {
+          const data = (await loginRes.json()) as { message: string; username: string; token: string };
+          bot.token = data.token;
+          this.onLog({
+            time: nowTime(),
+            botId: id,
+            action: "LOGIN",
+            detail: `Authenticated as ${username}`,
+            ok: true,
+          });
+        } else {
+          const text = await loginRes.text();
+          this.onLog({
+            time: nowTime(),
+            botId: id,
+            action: "LOGIN",
+            detail: `HTTP ${loginRes.status}: ${text.slice(0, 80)}`,
+            ok: false,
+          });
+          return bot;
+        }
+      } catch (err) {
         this.onLog({
           time: nowTime(),
           botId: id,
           action: "LOGIN",
-          detail: `HTTP ${loginRes.status}: ${text.slice(0, 80)}`,
+          detail: String(err),
           ok: false,
         });
         return bot;
       }
-    } catch (err) {
-      this.onLog({
-        time: nowTime(),
-        botId: id,
-        action: "LOGIN",
-        detail: String(err),
-        ok: false,
-      });
-      return bot;
     }
 
-    // 3. Fund bot (if not already)
-    if (!bot.funded && bot.token) {
+    // Cache authenticated bot
+    if (bot.token) {
+      BOT_SESSION_CACHE.set(id, bot);
+    }
+
+    // 4. Fund bot with INR if needed
+    if (bot.token && !bot.fundedSymbols.has("INR")) {
       await this.depositFunds(bot, "INR", 500000);
+      bot.fundedSymbols.add("INR");
+    }
+
+    // 5. Fund bot with target symbol if needed
+    if (bot.token && !bot.fundedSymbols.has(this.config.symbol)) {
       await this.depositFunds(bot, this.config.symbol, 5000);
-      bot.funded = true;
+      bot.fundedSymbols.add(this.config.symbol);
     }
 
     return bot;
@@ -305,58 +350,124 @@ export class MarketSimulator {
   private async runBot(bot: SimBot): Promise<void> {
     if (!this.running || !bot.token) return;
 
-    // Fetch orderbook
+    // Fetch orderbook with depth
     let bestBid = 0;
     let bestAsk = 0;
+    let totalBidDepth = 0;
+    let totalAskDepth = 0;
+
     try {
       const res = await fetch(`${BASE_URL}/orderbook/${this.config.symbol}`);
       if (res.ok) {
         const data = (await res.json()) as OrderbookResponse;
-        const bidPrices = Object.keys(data.bids)
-          .map(Number)
-          .filter((p) => (data.bids[String(p)] ?? 0) > 0);
-        const askPrices = Object.keys(data.asks)
-          .map(Number)
-          .filter((p) => (data.asks[String(p)] ?? 0) > 0);
-        if (bidPrices.length > 0) bestBid = Math.max(...bidPrices);
-        if (askPrices.length > 0) bestAsk = Math.min(...askPrices);
+        const bidEntries = Object.entries(data.bids || {})
+          .map(([p, q]) => ({ price: Number(p), qty: Number(q) }))
+          .filter((e) => e.qty > 0 && Number.isFinite(e.price));
+        const askEntries = Object.entries(data.asks || {})
+          .map(([p, q]) => ({ price: Number(p), qty: Number(q) }))
+          .filter((e) => e.qty > 0 && Number.isFinite(e.price));
+
+        if (bidEntries.length > 0) {
+          bestBid = Math.max(...bidEntries.map((e) => e.price));
+          totalBidDepth = bidEntries.reduce((sum, e) => sum + e.qty, 0);
+        }
+        if (askEntries.length > 0) {
+          bestAsk = Math.min(...askEntries.map((e) => e.price));
+          totalAskDepth = askEntries.reduce((sum, e) => sum + e.qty, 0);
+        }
       }
     } catch {
-      // ignore orderbook fetch errors — use fallback
+      // fallback
     }
 
-    // Fallback price if orderbook is empty
-    const fallback = 100;
-    if (bestBid === 0) bestBid = fallback;
-    if (bestAsk === 0) bestAsk = fallback * 1.001;
-    if (bestAsk <= bestBid) bestAsk = bestBid * 1.001;
+    const fallbackPrice = 100;
+    const hasBids = bestBid > 0 && totalBidDepth > 0;
+    const hasAsks = bestAsk > 0 && totalAskDepth > 0;
 
     // Decide order parameters
     const crossRate = CROSS_RATE[this.config.aggression];
     const willCross = Math.random() < crossRate;
-    const side: "BUY" | "SELL" = Math.random() < 0.5 ? "BUY" : "SELL";
-    const quantity = randInt(1, 20);
+    let side: "BUY" | "SELL" = Math.random() < 0.5 ? "BUY" : "SELL";
+    let quantity = randInt(1, 15);
 
     let payload: PlaceOrderPayload;
 
+    // LIQUIDITY AWARENESS:
+    // If attempting a market order, verify that the counterparty side actually has resting orders.
+    // If not, automatically switch to a LIMIT order to provide liquidity and build the book.
     if (willCross) {
-      // Market order (crosses spread)
-      payload = {
-        side,
-        type: "MARKET",
-        symbol: this.config.symbol,
-        quantity,
-      };
+      if (side === "BUY") {
+        if (hasAsks) {
+          // Asks exist: safe to place BUY MARKET
+          const maxTake = Math.max(1, Math.floor(totalAskDepth));
+          payload = {
+            side: "BUY",
+            type: "MARKET",
+            symbol: this.config.symbol,
+            quantity: Math.min(quantity, maxTake),
+          };
+        } else {
+          // No asks exist: cannot BUY MARKET (would cause INSUFFICIENT LIQUIDITY)
+          // Act as a market maker: place a SELL LIMIT order to replenish asks!
+          const askPrice = hasBids ? Math.round(bestBid * 1.008 * 100) / 100 : fallbackPrice * 1.01;
+          payload = {
+            side: "SELL",
+            type: "LIMIT",
+            symbol: this.config.symbol,
+            price: Math.round(askPrice * 100) / 100,
+            quantity,
+          };
+        }
+      } else {
+        // side === "SELL"
+        if (hasBids) {
+          // Bids exist: safe to place SELL MARKET
+          const maxTake = Math.max(1, Math.floor(totalBidDepth));
+          payload = {
+            side: "SELL",
+            type: "MARKET",
+            symbol: this.config.symbol,
+            quantity: Math.min(quantity, maxTake),
+          };
+        } else {
+          // No bids exist: cannot SELL MARKET (would cause INSUFFICIENT LIQUIDITY)
+          // Act as a market maker: place a BUY LIMIT order to replenish bids!
+          const bidPrice = hasAsks ? Math.round(bestAsk * 0.992 * 100) / 100 : fallbackPrice * 0.99;
+          payload = {
+            side: "BUY",
+            type: "LIMIT",
+            symbol: this.config.symbol,
+            price: Math.round(bidPrice * 100) / 100,
+            quantity,
+          };
+        }
+      }
     } else {
-      // Passive LIMIT order
+      // Passive LIMIT order (Market Making / Liquidity Provision)
       let price: number;
       if (side === "BUY") {
-        // Between bestBid*0.99 and bestAsk*0.999 (don't cross)
-        price = rand(bestBid * 0.99, bestAsk * 0.999);
+        if (hasBids && hasAsks && bestAsk > bestBid) {
+          price = rand(bestBid * 0.992, Math.min(bestBid * 1.001, bestAsk - 0.01));
+        } else if (hasBids) {
+          price = rand(bestBid * 0.99, bestBid * 1.00);
+        } else if (hasAsks) {
+          price = rand(bestAsk * 0.985, bestAsk * 0.995);
+        } else {
+          price = rand(fallbackPrice * 0.98, fallbackPrice * 0.995);
+        }
       } else {
-        // Between bestBid*1.001 and bestAsk*1.01
-        price = rand(bestBid * 1.001, bestAsk * 1.01);
+        // SELL
+        if (hasBids && hasAsks && bestAsk > bestBid) {
+          price = rand(Math.max(bestAsk * 0.999, bestBid + 0.01), bestAsk * 1.008);
+        } else if (hasAsks) {
+          price = rand(bestAsk * 1.00, bestAsk * 1.01);
+        } else if (hasBids) {
+          price = rand(bestBid * 1.005, bestBid * 1.015);
+        } else {
+          price = rand(fallbackPrice * 1.005, fallbackPrice * 1.02);
+        }
       }
+
       price = Math.round(price * 100) / 100;
       payload = {
         side,
@@ -393,13 +504,30 @@ export class MarketSimulator {
           payload.type === "LIMIT" && payload.price != null
             ? ` @ ${payload.price.toFixed(2)}`
             : "";
-        detail = `${side} ${payload.type} ${quantity} ${this.config.symbol}${priceStr} → ${data.status ?? "OK"}`;
+        detail = `${payload.side} ${payload.type} ${payload.quantity} ${this.config.symbol}${priceStr} → ${data.status ?? "OK"}`;
 
         this.stats.ordersPlaced += 1;
         this.orderCountThisSecond += 1;
         if (filled > 0) this.stats.fills += 1;
       } else {
         const text = await res.text();
+        if (res.status === 400 && text.includes("INSUFFICIENT LIQUIDITY")) {
+          // Handled gracefully: transient liquidity gap between concurrent bots
+          this.onLog({
+            time: nowTime(),
+            botId: bot.id,
+            action: `${payload.side} ${payload.type}`,
+            detail: `${this.config.symbol} book drained — auto replenished`,
+            ok: true,
+          });
+          return;
+        }
+
+        if (res.status === 401) {
+          bot.token = null;
+          BOT_SESSION_CACHE.delete(bot.id);
+        }
+
         detail = `HTTP ${res.status}: ${text.slice(0, 100)}`;
         this.stats.errors += 1;
       }
