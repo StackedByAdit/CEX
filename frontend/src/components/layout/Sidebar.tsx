@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { History, Layers, LineChart, TrendingUp, Wallet, X } from "lucide-react";
+import { History, Layers, LineChart, TrendingUp, Wallet, X, Zap } from "lucide-react";
 import type { Balance, Stock } from "../../types";
 
 interface SidebarProps {
-  activeTab: "spot" | "wallet" | "history";
-  onSelectTab: (tab: "spot" | "wallet" | "history") => void;
+  activeTab: "spot" | "wallet" | "history" | "simulator";
+  onSelectTab: (tab: "spot" | "wallet" | "history" | "simulator") => void;
   balances?: Record<string, Balance>;
   stocks?: Stock[];
 }
@@ -146,6 +146,18 @@ export default function Sidebar({
         }`}
       >
         <History size={20} strokeWidth={1.5} />
+      </button>
+      {/* Simulator */}
+      <button
+        title="Market Simulator"
+        onClick={() => onSelectTab("simulator")}
+        className={`flex h-14 w-full flex-col items-center justify-center gap-1 transition-all duration-200 ${
+          activeTab === "simulator"
+            ? "text-white border-l-2 border-indigo-400 bg-white/5"
+            : "text-orbit-secondary hover:bg-white/5 hover:text-white"
+        }`}
+      >
+        <Zap size={20} strokeWidth={1.5} />
       </button>
     </aside>
   );
