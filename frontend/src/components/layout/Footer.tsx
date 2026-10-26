@@ -1,6 +1,20 @@
-export default function Footer() {
+import { useEffect, useState } from "react";
+
+function getUtcTime() {
   const now = new Date();
-  const utc = now.toISOString().slice(11, 19);
+  return now.toISOString().slice(11, 19);
+}
+
+export default function Footer() {
+  const [utc, setUtc] = useState(getUtcTime);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setUtc(getUtcTime());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <footer className="flex h-8 shrink-0 items-center justify-between border-t border-orbit-border bg-orbit-bg px-4 text-[10px] text-orbit-muted">
