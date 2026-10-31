@@ -1,5 +1,9 @@
 <div align="center">
 
+<img width="1572" height="953" alt="ORBIT Exchange — Trading Interface" src="https://github.com/user-attachments/assets/fe7dec39-656b-4576-97a1-42fc702376e2" />
+
+<br /><br />
+
 <img src="./frontend/public/orbit.svg" width="64" alt="ORBIT logo" />
 
 # ORBIT Exchange
@@ -167,10 +171,9 @@ cd CEX
 
 ```bash
 cd backend
-cp .env.example .env   # create your own if .env.example is absent
 ```
 
-Set the following variables in `backend/.env`:
+Create `backend/.env`:
 
 ```env
 DATABASE_URL="postgresql://user:password@host:5432/dbname?sslmode=require"
@@ -183,25 +186,25 @@ REDIS_URL="redis://127.0.0.1:6379"
 ```bash
 cd backend
 bun install
-bunx prisma migrate deploy   # run migrations
-bunx prisma db seed          # seed initial stocks (AXIS, HDFC, SOL)
+bunx prisma migrate deploy
 ```
 
-> If you don't have a seed file yet, insert rows manually:
-> ```sql
-> INSERT INTO "Stock" (id, title, symbol, "createdAt")
-> VALUES (gen_random_uuid(), 'Axis Bank', 'AXIS', now()),
->        (gen_random_uuid(), 'HDFC Bank', 'HDFC', now()),
->        (gen_random_uuid(), 'Solana',    'SOL',  now());
-> ```
+Seed initial stocks (if no seed script exists):
+
+```sql
+INSERT INTO "Stock" (id, title, symbol, "createdAt")
+VALUES (gen_random_uuid(), 'Axis Bank', 'AXIS', now()),
+       (gen_random_uuid(), 'HDFC Bank', 'HDFC', now()),
+       (gen_random_uuid(), 'Solana',    'SOL',  now());
+```
 
 ### 4 — Start the backend
 
 ```bash
 cd backend
 bun run index.ts
-# HTTP API on :3000
-# WebSocket server on :8080
+# HTTP API → http://localhost:3000
+# WebSocket → ws://localhost:8080
 ```
 
 ### 5 — Start the frontend
@@ -210,11 +213,10 @@ bun run index.ts
 cd frontend
 npm install
 npm run dev
-# Development server on http://localhost:5173
-# API + WS proxied to localhost:3000 / :8080 via vite.config.ts
+# http://localhost:5173
 ```
 
-Open **http://localhost:5173**, sign up for an account, deposit some test INR, and start trading.
+Open **http://localhost:5173**, sign up, deposit test INR, and start trading.
 
 ---
 
@@ -241,13 +243,13 @@ All authenticated endpoints require a valid JWT in the `session` cookie **or** `
 
 ### WebSocket — `ws://localhost:8080`
 
-Connect with `?token=<jwt>` or the session cookie. Send JSON messages:
+Connect with `?token=<jwt>` or the session cookie.
 
 | Client → Server | Description |
 |---|---|
-| `{ type: "SUBSCRIBE_ORDERBOOK", symbol }` | Subscribe to live book updates; sends snapshot immediately |
+| `{ type: "SUBSCRIBE_ORDERBOOK", symbol }` | Subscribe; sends snapshot immediately |
 | `{ type: "UNSUBSCRIBE_ORDERBOOK", symbol }` | Unsubscribe |
-| `{ type: "SUBSCRIBE_CANDLE", symbol, interval }` | Subscribe to 1 m candle updates; sends historical snapshot |
+| `{ type: "SUBSCRIBE_CANDLE", symbol, interval }` | Subscribe; sends historical snapshot |
 | `{ type: "UNSUBSCRIBE_CANDLE", symbol, interval }` | Unsubscribe |
 | `{ type: "GET_BALANCE" }` | Request current balance snapshot |
 
@@ -255,9 +257,9 @@ Connect with `?token=<jwt>` or the session cookie. Send JSON messages:
 |---|---|
 | `ORDERBOOK_SNAPSHOT` | Full book on subscribe |
 | `ORDERBOOK_UPDATE` | Book delta after any fill or cancel |
-| `TRADE` | Each individual fill |
+| `TRADE` | Each individual fill event |
 | `BALANCE_SNAPSHOT` | Balance state on `GET_BALANCE` |
-| `BALANCE_UPDATE` | Private push after any fill or deposit touching this user |
+| `BALANCE_UPDATE` | Private push after any fill or deposit |
 | `CANDLE_SNAPSHOT` | Historical candles on subscribe |
 | `CANDLE_UPDATE` | Live 1 m candle push after every trade |
 
@@ -287,27 +289,24 @@ User ──< Order ──< Fill >── Order
 
 ## Load Testing
 
-A minimal CLI bot is included in `bot/`:
-
 ```bash
 cd bot
-bun install      # if needed
-bun run bot.ts   # 2 bots, 10 orders/second
+bun run bot.ts   # 2 bots · 10 orders/second
 ```
 
-Or use the in-app **Market Simulator** (Navbar → Simulator) for a GUI-driven load test without leaving the browser.
+Or use the in-app **Market Simulator** (Navbar → Simulator) for a GUI-driven load test.
 
 ---
 
-## Project Structure Decisions
+## Design Decisions
 
 | Decision | Why |
 |---|---|
 | **In-memory BTree orderbook** | O(log n) insert/delete; zero DB latency on the hot path |
-| **Redis FIFO queue + BRPOP result** | Decouples HTTP from matching without polling; serial order processing without a dedicated process |
-| **Write-behind DB buffer** | 500 ms batching dramatically reduces DB write pressure while keeping reads consistent via explicit flush |
+| **Redis FIFO queue + BRPOP result** | Decouples HTTP from matching without polling; serial processing without a dedicated process |
+| **Write-behind DB buffer** | 500 ms batching reduces DB write pressure; reads flush explicitly for consistency |
 | **1 m candles only in DB** | Storage efficiency; coarser intervals aggregated on read in O(n) |
-| **Single-process matching** | Node.js event-loop guarantees serial execution of `matchOrder()` — no mutex needed |
+| **Single-process matching** | Node.js event-loop guarantees serial `matchOrder()` execution — no mutex needed |
 | **Balance cache seeded at startup** | Eliminates DB round-trips on every order; crash recovery restores open orders from DB |
 
 ---
