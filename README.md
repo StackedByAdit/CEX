@@ -4,7 +4,7 @@
 
 <br /><br />
 
-<img width="1572" height="953" alt="ORBIT Exchange — Trading Interface" src="https://github.com/user-attachments/assets/fe7dec39-656b-4576-97a1-42fc702376e2" />
+<img width="1865" height="955" alt="ORBIT Exchange — Trading Interface" src="./assets/trade.jpg" />
 
 <br /><br />
 
@@ -112,7 +112,8 @@ cex/
 │
 └── assets/
     ├── architecture.jpg      # System architecture diagram
-    └── landing.jpg           # Landing page preview
+    ├── landing.jpg           # Landing page preview
+    └── trade.jpg             # Trading interface preview
 ```
 
 ---
