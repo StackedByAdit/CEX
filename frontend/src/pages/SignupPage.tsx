@@ -104,6 +104,10 @@ export default function SignupPage() {
         >
           {loading ? "Creating account..." : "Create Account"}
         </button>
+
+        <p className="text-center text-xs text-orbit-muted">
+          New accounts start at zero. You add test INR or stock from the wallet after you sign in.
+        </p>
       </form>
     </AuthLayout>
   );

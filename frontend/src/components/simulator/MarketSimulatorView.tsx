@@ -10,7 +10,6 @@ import {
   Play,
   RotateCcw,
   Square,
-  Terminal,
   TrendingUp,
   XCircle,
   Zap,
@@ -445,7 +444,7 @@ export default function MarketSimulatorView({ symbol: defaultSymbol, stocks }: P
         <div className="flex-1 flex flex-col min-h-0 bg-[#07090e] p-6">
           <div className="flex items-center justify-between pb-3 shrink-0 border-b border-white/10">
             <div className="flex items-center gap-2.5">
-              <Terminal size={16} className="text-indigo-400" />
+              <Activity size={16} className="text-indigo-400" />
               <span className="text-sm font-semibold tracking-wide text-white">Live Activity Stream</span>
               <span className="text-[11px] text-orbit-secondary font-mono">({filteredLogs.length} events)</span>
             </div>
@@ -481,11 +480,11 @@ export default function MarketSimulatorView({ symbol: defaultSymbol, stocks }: P
             </div>
           </div>
 
-          {/* Activity Terminal */}
+          {/* Activity stream */}
           <div className="flex-1 min-h-0 overflow-y-auto mt-4 rounded-2xl bg-[#04060a] border border-white/10 p-4 font-mono text-xs space-y-1.5">
             {filteredLogs.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-orbit-secondary/40 space-y-2 py-12">
-                <Terminal size={32} strokeWidth={1.5} />
+                <Activity size={32} strokeWidth={1.5} />
                 <p className="text-xs">
                   {isRunning ? "Waiting for new bot order events…" : "Start the simulation to stream live bot activity"}
                 </p>

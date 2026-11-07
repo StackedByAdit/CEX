@@ -1,5 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import BrandMark from "../brand/BrandMark";
+import OrbitField from "../landing/OrbitField";
 
 interface AuthLayoutProps {
   title: string;
@@ -16,26 +18,31 @@ export default function AuthLayout({
   footerText,
   footerLink,
 }: AuthLayoutProps) {
+  useEffect(() => {
+    document.documentElement.classList.add("orbit-public");
+    return () => {
+      document.documentElement.classList.remove("orbit-public");
+    };
+  }, []);
+
   return (
-    <div className="flex min-h-full flex-col bg-orbit-bg">
-      <header className="flex items-center justify-between border-b border-orbit-border px-6 py-4">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-orbit-border bg-orbit-panel">
-            <span className="text-xs font-bold tracking-widest">O</span>
-          </div>
-          <span className="text-sm font-semibold tracking-[0.2em]">ORBIT</span>
+    <div className="auth-atmosphere relative flex min-h-svh flex-col">
+      <OrbitField />
+
+      <header className="relative z-10 flex items-center justify-between border-b border-white/10 bg-orbit-bg/50 px-6 py-4 backdrop-blur-md">
+        <Link to="/" className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/80">
+          <BrandMark />
         </Link>
-        <span className="text-xs text-orbit-secondary">EXCHANGE</span>
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-4 py-12">
+      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
             <p className="mt-2 text-sm text-orbit-secondary">{subtitle}</p>
           </div>
 
-          <div className="rounded border border-orbit-border bg-orbit-panel p-8">
+          <div className="rounded border border-white/10 bg-orbit-panel/85 p-8 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-md">
             {children}
           </div>
 
@@ -48,8 +55,8 @@ export default function AuthLayout({
         </div>
       </main>
 
-      <footer className="border-t border-orbit-border px-6 py-3 text-center text-xs text-orbit-muted">
-        © 2026 ORBIT EXCHANGE · Terms · Privacy · API Docs
+      <footer className="relative z-10 border-t border-white/10 px-6 py-3 text-center text-xs text-orbit-secondary">
+        © 2026 ORBIT Exchange
       </footer>
     </div>
   );

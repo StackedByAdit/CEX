@@ -39,6 +39,57 @@ body {
   height: 100%;
 }
 
+html.orbit-public,
+html.orbit-public body,
+html.orbit-public #root {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html.orbit-public {
+  scroll-behavior: smooth;
+}
+
+.landing-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(ellipse at 70% 30%, black 10%, transparent 72%);
+}
+
+.auth-atmosphere {
+  background-color: #0a0a0a;
+  background-image:
+    radial-gradient(ellipse 72% 58% at 85% -10%, rgba(99, 102, 241, 0.28), transparent 58%),
+    radial-gradient(ellipse 55% 48% at 0% 110%, rgba(255, 255, 255, 0.07), transparent 52%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: auto, auto, 56px 56px, 56px 56px;
+}
+
+.orbit-ring {
+  animation: orbit-spin 48s linear infinite;
+}
+
+@keyframes orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.orbit-public {
+    scroll-behavior: auto;
+  }
+
+  .orbit-ring {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -95,4 +146,32 @@ input[type="number"] {
 
 .animate-slide-in {
   animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.candle-rise {
+  opacity: 0;
+  animation: candle-in 0.55s ease forwards;
+}
+
+.chart-trace {
+  stroke-dasharray: 900;
+  stroke-dashoffset: 900;
+  animation: chart-draw 1.8s ease 0.2s forwards;
+}
+
+@keyframes candle-in {
+  to { opacity: 1; }
+}
+
+@keyframes chart-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .candle-rise,
+  .chart-trace {
+    animation: none;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
 }

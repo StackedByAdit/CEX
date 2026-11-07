@@ -81,7 +81,7 @@ export default function LoginPage() {
         </button>
 
         <p className="text-center text-xs text-orbit-muted">
-          Demo accounts start with INR and stock balances pre-funded.
+          Accounts open at zero. Wallet deposits are test credits, not real funds.
         </p>
       </form>
     </AuthLayout>

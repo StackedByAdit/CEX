@@ -2,13 +2,23 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+function bypassSpaDocument(req: { method?: string; headers: { accept?: string | string[] } }) {
+  const accept = req.headers.accept;
+  const acceptValue = Array.isArray(accept) ? accept.join(",") : (accept ?? "");
+  if (req.method === "GET" && acceptValue.includes("text/html")) {
+    return "/index.html";
+  }
+}
+
+const apiProxy = "http://localhost:3000";
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     proxy: {
-      "/signup": "http://localhost:3000",
-      "/login": "http://localhost:3000",
+      "/signup": { target: apiProxy, bypass: bypassSpaDocument },
+      "/login": { target: apiProxy, bypass: bypassSpaDocument },
       "/logout": "http://localhost:3000",
       "/deposit": "http://localhost:3000",
       "/order": "http://localhost:3000",
