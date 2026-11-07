@@ -1,17 +1,19 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, LogOut, Wallet, ChevronDown, Zap } from "lucide-react";
+import { Bell, LogOut, Wallet, History, ChevronDown, Zap } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { clearAuth, getUsername } from "../../lib/auth";
 import { logout } from "../../lib/api";
 import { useSimulator } from "../../lib/simulator/useSimulator";
 
 interface NavbarProps {
+  activeTab?: "spot" | "wallet" | "history" | "simulator";
   onSelectTab?: (tab: "spot" | "wallet" | "history" | "simulator") => void;
   onToggleSimulator?: () => void;
   isSimulatorOpen?: boolean;
 }
 
 export default function Navbar({
+  activeTab = "spot",
   onSelectTab,
   onToggleSimulator,
   isSimulatorOpen,
@@ -37,6 +39,13 @@ export default function Navbar({
     setDropdownOpen(false);
     if (onSelectTab) {
       onSelectTab("wallet");
+    }
+  }
+
+  function handleHistoryClick() {
+    setDropdownOpen(false);
+    if (onSelectTab) {
+      onSelectTab("history");
     }
   }
 
@@ -66,21 +75,27 @@ export default function Navbar({
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex">
-          {["Markets", "Trade", "Dashboard", "Institutions"].map((item) => (
-            <button
-              key={item}
-              onClick={() => {
-                if (item === "Trade") onSelectTab?.("spot");
-              }}
-              className={`text-xs font-medium tracking-wide transition cursor-pointer ${
-                item === "Trade"
-                  ? "text-white"
-                  : "text-orbit-secondary hover:text-white"
-              }`}
-            >
-              {item}
-            </button>
-          ))}
+          {[
+            { id: "markets", label: "Markets", target: "spot" as const },
+            { id: "spot", label: "Trade", target: "spot" as const },
+            { id: "wallet", label: "Wallet", target: "wallet" as const },
+            { id: "history", label: "Trade History", target: "history" as const },
+          ].map((item) => {
+            const isActive = item.id === "markets" ? false : activeTab === item.target;
+            return (
+              <button
+                key={item.label}
+                onClick={() => onSelectTab?.(item.target)}
+                className={`text-xs font-medium tracking-wide transition cursor-pointer ${
+                  isActive
+                    ? "text-white font-semibold"
+                    : "text-orbit-secondary hover:text-white"
+                }`}
+              >
+                {item.label}
+              </button>
+            );
+          })}
         </nav>
       </div>
 
@@ -156,6 +171,14 @@ export default function Navbar({
                 >
                   <Wallet size={15} className="text-indigo-400" />
                   <span>Wallet</span>
+                </button>
+
+                <button
+                  onClick={handleHistoryClick}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-orbit-secondary transition hover:bg-white/5 hover:text-white cursor-pointer"
+                >
+                  <History size={15} className="text-emerald-400" />
+                  <span>Trade History</span>
                 </button>
 
                 <div className="mx-3 my-1 border-t border-white/5" />

@@ -246,6 +246,7 @@ export default function TradePage() {
       }}
     >
       <Navbar
+        activeTab={activeTab}
         onSelectTab={setActiveTab}
         onToggleSimulator={() => setIsSimulatorDropdownOpen((v) => !v)}
         isSimulatorOpen={isSimulatorDropdownOpen}
