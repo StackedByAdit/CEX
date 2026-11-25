@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { syncOrderStatus } from "./orderSync";
 import type { MemoryOrder } from "../types/order";
+import { parsePrice, parseQuantity } from "./precision";
 
 describe("syncOrderStatus", () => {
     test("preserves CANCELLED status even if filledQuantity > 0", () => {
@@ -10,9 +11,9 @@ describe("syncOrderStatus", () => {
             side: "BUY",
             symbol: "SOL",
             type: "LIMIT",
-            price: 100,
-            quantity: 10,
-            filledQuantity: 4,
+            price: parsePrice(100),
+            quantity: parseQuantity(10, "SOL"),
+            filledQuantity: parseQuantity(4, "SOL"),
             status: "CANCELLED",
         };
 
@@ -27,9 +28,9 @@ describe("syncOrderStatus", () => {
             side: "BUY",
             symbol: "SOL",
             type: "LIMIT",
-            price: 100,
-            quantity: 10,
-            filledQuantity: 4,
+            price: parsePrice(100),
+            quantity: parseQuantity(10, "SOL"),
+            filledQuantity: parseQuantity(4, "SOL"),
             status: "PENDING",
         };
 
@@ -44,9 +45,9 @@ describe("syncOrderStatus", () => {
             side: "BUY",
             symbol: "SOL",
             type: "LIMIT",
-            price: 100,
-            quantity: 10,
-            filledQuantity: 10,
+            price: parsePrice(100),
+            quantity: parseQuantity(10, "SOL"),
+            filledQuantity: parseQuantity(10, "SOL"),
             status: "PARTIALLY_FILLED",
         };
 
@@ -61,13 +62,29 @@ describe("syncOrderStatus", () => {
             side: "BUY",
             symbol: "SOL",
             type: "LIMIT",
-            price: 100,
-            quantity: 10,
-            filledQuantity: 0,
+            price: parsePrice(100),
+            quantity: parseQuantity(10, "SOL"),
+            filledQuantity: 0n,
             status: "PENDING",
         };
 
         syncOrderStatus(order);
         expect(order.status).toBe("PENDING");
+    });
+
+    test("preserves FILLED status for partially filled MARKET order", () => {
+        const order: MemoryOrder = {
+            id: "ord-mkt-1",
+            userId: "user-1",
+            side: "BUY",
+            symbol: "SOL",
+            type: "MARKET",
+            quantity: parseQuantity(10, "SOL"),
+            filledQuantity: parseQuantity(4, "SOL"),
+            status: "FILLED",
+        };
+
+        syncOrderStatus(order);
+        expect(order.status).toBe("FILLED");
     });
 });
