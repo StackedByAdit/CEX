@@ -1,97 +1,99 @@
 import { ORDERBOOK } from "../state";
+import { calculateQuote, getAssetScale } from "./precision";
 
 export interface MarketWalkFill {
-    price: number;
-    quantity: number;
+    price: bigint;
+    quantity: bigint;
 }
 
 export interface MarketWalkResult {
-    fillableQuantity: number;
-    estimatedQuote: number;
-    averagePrice: number;
+    fillableQuantity: bigint;
+    estimatedQuote: bigint; // in INR paise
+    averagePrice: bigint;   // in INR paise
     fills: MarketWalkFill[];
 }
 
-export function roundInr(value: number): number {
-    return Math.round(value * 100) / 100;
-}
-
-export function roundQty(value: number): number {
-    return Math.round(value * 10000) / 10000;
-}
-
-function availableAtPrice(orders: { quantity: number; filledQuantity: number }[]): number {
-    let total = 0;
+function availableAtPrice(orders: { quantity: bigint; filledQuantity: bigint }[]): bigint {
+    let total = 0n;
     for (const order of orders) {
         total += order.quantity - order.filledQuantity;
     }
     return total;
 }
 
-export function walkAsks(symbol: string, quantity: number): MarketWalkResult {
+export function walkAsks(symbol: string, quantity: bigint): MarketWalkResult {
     const firm = ORDERBOOK[symbol];
-    if (!firm || quantity <= 0) {
-        return { fillableQuantity: 0, estimatedQuote: 0, averagePrice: 0, fills: [] };
+    if (!firm || quantity <= 0n) {
+        return { fillableQuantity: 0n, estimatedQuote: 0n, averagePrice: 0n, fills: [] };
     }
 
     let remaining = quantity;
-    let estimatedQuote = 0;
+    let estimatedQuote = 0n;
     const fills: MarketWalkFill[] = [];
 
     for (const [price, ordersAtPrice] of firm.asks.entries()) {
-        if (remaining <= 0) break;
+        if (remaining <= 0n) break;
         if (!ordersAtPrice) continue;
 
         const available = availableAtPrice(ordersAtPrice);
-        if (available <= 0) continue;
+        if (available <= 0n) continue;
 
-        const take = Math.min(remaining, available);
+        const take = remaining < available ? remaining : available;
         fills.push({ price, quantity: take });
-        estimatedQuote += take * price;
+        // Use "up" rounding for estimates so buyer collateral never under-allocates
+        const tradeQuote = calculateQuote(take, price, symbol, "up");
+        estimatedQuote += tradeQuote;
         remaining -= take;
     }
 
-    const fillableQuantity = roundQty(quantity - remaining);
-    estimatedQuote = roundInr(estimatedQuote);
-    const averagePrice = fillableQuantity > 0 ? roundInr(estimatedQuote / fillableQuantity) : 0;
+    const fillableQuantity = quantity - remaining;
+    const scale = getAssetScale(symbol);
+    const divisor = 10n ** BigInt(scale.decimals);
+    const averagePrice = fillableQuantity > 0n
+        ? (estimatedQuote * divisor) / fillableQuantity
+        : 0n;
 
     return { fillableQuantity, estimatedQuote, averagePrice, fills };
 }
 
-export function walkBids(symbol: string, quantity: number): MarketWalkResult {
+export function walkBids(symbol: string, quantity: bigint): MarketWalkResult {
     const firm = ORDERBOOK[symbol];
-    if (!firm || quantity <= 0) {
-        return { fillableQuantity: 0, estimatedQuote: 0, averagePrice: 0, fills: [] };
+    if (!firm || quantity <= 0n) {
+        return { fillableQuantity: 0n, estimatedQuote: 0n, averagePrice: 0n, fills: [] };
     }
 
     let remaining = quantity;
-    let estimatedQuote = 0;
+    let estimatedQuote = 0n;
     const fills: MarketWalkFill[] = [];
 
     for (const [price, ordersAtPrice] of firm.bids.entriesReversed()) {
-        if (remaining <= 0) break;
+        if (remaining <= 0n) break;
         if (!ordersAtPrice) continue;
 
         const available = availableAtPrice(ordersAtPrice);
-        if (available <= 0) continue;
+        if (available <= 0n) continue;
 
-        const take = Math.min(remaining, available);
+        const take = remaining < available ? remaining : available;
         fills.push({ price, quantity: take });
-        estimatedQuote += take * price;
+        const tradeQuote = calculateQuote(take, price, symbol, "down");
+        estimatedQuote += tradeQuote;
         remaining -= take;
     }
 
-    const fillableQuantity = roundQty(quantity - remaining);
-    estimatedQuote = roundInr(estimatedQuote);
-    const averagePrice = fillableQuantity > 0 ? roundInr(estimatedQuote / fillableQuantity) : 0;
+    const fillableQuantity = quantity - remaining;
+    const scale = getAssetScale(symbol);
+    const divisor = 10n ** BigInt(scale.decimals);
+    const averagePrice = fillableQuantity > 0n
+        ? (estimatedQuote * divisor) / fillableQuantity
+        : 0n;
 
     return { fillableQuantity, estimatedQuote, averagePrice, fills };
 }
 
-export function estimateMarketBuy(symbol: string, quantity: number): MarketWalkResult {
-    return walkAsks(symbol, roundQty(quantity));
+export function estimateMarketBuy(symbol: string, quantity: bigint): MarketWalkResult {
+    return walkAsks(symbol, quantity);
 }
 
-export function estimateMarketSell(symbol: string, quantity: number): MarketWalkResult {
-    return walkBids(symbol, roundQty(quantity));
+export function estimateMarketSell(symbol: string, quantity: bigint): MarketWalkResult {
+    return walkBids(symbol, quantity);
 }
