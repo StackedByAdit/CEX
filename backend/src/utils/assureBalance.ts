@@ -2,7 +2,6 @@ import { prisma } from "../prisma";
 import { BALANCES, STOCK_BY_SYMBOL, type BalanceRecord } from "../state";
 import { getAssetScale, parseUnits } from "./precision";
 
-/** Hot-path balance access — throws if not already in memory (bootstrap / prior orders). */
 export function getBalance(userId: string, symbol: string): BalanceRecord {
     const balance = BALANCES[userId]?.[symbol];
     if (!balance) {

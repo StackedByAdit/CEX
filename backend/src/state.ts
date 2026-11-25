@@ -4,7 +4,7 @@ import BTree from "sorted-btree";
 export const ORDERS: MemoryOrder[] = [];
 
 export interface BalanceRecord {
-    available: bigint; // In atomic units (paise for INR, lamports for SOL, units for shares)
+    available: bigint;
     locked: bigint;
     balanceId: string;
 }
