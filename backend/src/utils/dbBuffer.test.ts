@@ -29,7 +29,6 @@ describe("dbBuffer error recovery", () => {
         }]);
         queueBalanceUpdate("bal-1", 500n, 100n, "INR");
 
-        // Mock prisma.$transaction to throw error on first call
         const originalTransaction = prisma.$transaction;
         let callCount = 0;
 
@@ -42,10 +41,9 @@ describe("dbBuffer error recovery", () => {
         }) as typeof prisma.$transaction;
 
         try {
-            await flushDbBuffer(); // First attempt fails and re-enqueues
+            await flushDbBuffer();
             expect(callCount).toBe(1);
 
-            // Second flush should succeed with re-queued items
             await flushDbBuffer();
             expect(callCount).toBe(2);
         } finally {
@@ -67,14 +65,12 @@ describe("dbBuffer error recovery", () => {
         try {
             queueBalanceUpdate("bal-concurrent", 100n, 0n, "INR");
 
-            // Invoke flushDbBuffer concurrently
             const p1 = flushDbBuffer();
             const p2 = flushDbBuffer();
             const p3 = flushDbBuffer();
 
             await Promise.all([p1, p2, p3]);
 
-            // All callers finished after in-flight flush resolved
             expect(inFlight).toBe(false);
         } finally {
             prisma.$transaction = originalTransaction;

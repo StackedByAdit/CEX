@@ -17,6 +17,8 @@ import {
     unitsToNumber,
 } from "./precision";
 import { formatOrderbookForPublish, formatBalancesForPublish } from "./publish";
+import { lockAndQueueOrder } from "./orderPlacement";
+import { STOCK_BY_SYMBOL } from "../state";
 import BTree from "sorted-btree";
 
 function createTree(): BTree<bigint, MemoryOrder[]> {
@@ -41,22 +43,20 @@ describe("End-to-End Precision & System Integration", () => {
             side: "BUY",
             type: "LIMIT",
             symbol: "SOL",
-            price: parsePrice(101.17), // 10117n paise
-            quantity: parseQuantity(2.5, "SOL"), // 2500000000n lamports
+            price: parsePrice(101.17),
+            quantity: parseQuantity(2.5, "SOL"),
             filledQuantity: 0n,
             status: "PENDING",
-            lockedQuoteAmount: 25293n, // 252.93 INR in paise
+            lockedQuoteAmount: 25293n,
         };
 
         const serialized = serializeOrderForQueue(originalOrder, "stock-sol-id");
-        // Verify it is a valid JSON string without BigInt serialization runtime errors
         expect(typeof serialized).toBe("string");
         const parsedJson = JSON.parse(serialized);
         expect(parsedJson.price).toBe("10117");
         expect(parsedJson.quantity).toBe("2500000000");
         expect(parsedJson.lockedQuoteAmount).toBe("25293");
 
-        // Deserialization restores exact BigInt primitives
         const { order: restored, stockId } = deserializeOrderFromQueue(serialized);
         expect(stockId).toBe("stock-sol-id");
         expect(restored.id).toBe(originalOrder.id);
@@ -75,7 +75,6 @@ describe("End-to-End Precision & System Integration", () => {
         const bids = createTree();
         ORDERBOOK.SOL = { asks, bids };
 
-        // Insert asks out of order: 105.00, 101.50, 103.25
         const p105 = parsePrice(105.00);
         const p101_50 = parsePrice(101.50);
         const p103_25 = parsePrice(103.25);
@@ -114,13 +113,11 @@ describe("End-to-End Precision & System Integration", () => {
             status: "PENDING",
         }]);
 
-        // Ascending iterator for asks (lowest price first)
         const askPrices = Array.from(asks.keys());
         expect(askPrices[0]).toBe(p101_50);
         expect(askPrices[1]).toBe(p103_25);
         expect(askPrices[2]).toBe(p105);
 
-        // Bids: insert 98.00, 100.50, 99.25
         const p98 = parsePrice(98.00);
         const p100_50 = parsePrice(100.50);
         const p99_25 = parsePrice(99.25);
@@ -129,7 +126,6 @@ describe("End-to-End Precision & System Integration", () => {
         bids.set(p100_50, [{ id: "b2", userId: "u2", side: "BUY", type: "LIMIT", symbol: "SOL", price: p100_50, quantity: 1n, filledQuantity: 0n, status: "PENDING" }]);
         bids.set(p99_25, [{ id: "b3", userId: "u3", side: "BUY", type: "LIMIT", symbol: "SOL", price: p99_25, quantity: 1n, filledQuantity: 0n, status: "PENDING" }]);
 
-        // Descending iterator for bids (highest price first)
         const bidPricesDescending = Array.from(bids.entriesReversed()).map(([p]) => p);
         expect(bidPricesDescending[0]).toBe(p100_50);
         expect(bidPricesDescending[1]).toBe(p99_25);
@@ -137,14 +133,13 @@ describe("End-to-End Precision & System Integration", () => {
     });
 
     test("3. Matching Engine Strict Zero-Leakage Conservation Law Across Partial Fills", () => {
-        // Setup Users
         const userA = "user-alice";
         const userB = "user-bob";
 
-        const initialAliceInr = parseInr(100000.00); // 1,00,000 INR
+        const initialAliceInr = parseInr(100000.00);
         const initialAliceSol = 0n;
         const initialBobInr = 0n;
-        const initialBobSol = parseQuantity(100.0, "SOL"); // 100 SOL
+        const initialBobSol = parseQuantity(100.0, "SOL");
 
         BALANCES[userA] = {
             INR: { available: initialAliceInr, locked: 0n, balanceId: "bal-alice-inr" },
@@ -160,7 +155,6 @@ describe("End-to-End Precision & System Integration", () => {
             bids: createTree(),
         };
 
-        // Bob places a limit sell for 10.5 SOL at 101.25 INR
         const bobSellQty = parseQuantity(10.5, "SOL");
         const bobSellPrice = parsePrice(101.25);
         BALANCES[userB].SOL!.available -= bobSellQty;
@@ -179,12 +173,10 @@ describe("End-to-End Precision & System Integration", () => {
         };
         ORDERBOOK.SOL.asks.set(bobSellPrice, [bobOrder]);
 
-        // Alice places a market buy for 3.25 SOL
         const aliceBuyQty = parseQuantity(3.25, "SOL");
         const estimate = estimateMarketBuy("SOL", aliceBuyQty);
         expect(estimate.fillableQuantity).toBe(aliceBuyQty);
 
-        // Alice locks INR according to estimate (ceiling rounding)
         BALANCES[userA].INR!.available -= estimate.estimatedQuote;
         BALANCES[userA].INR!.locked += estimate.estimatedQuote;
 
@@ -208,20 +200,16 @@ describe("End-to-End Precision & System Integration", () => {
         expect(result.fills[0]!.price).toBe(bobSellPrice);
         expect(result.fills[0]!.quantity).toBe(aliceBuyQty);
 
-        // Check Bob's order state
         expect(bobOrder.status).toBe("PARTIALLY_FILLED");
         expect(bobOrder.filledQuantity).toBe(aliceBuyQty);
         expect(bobOrder.quantity - bobOrder.filledQuantity).toBe(parseQuantity(7.25, "SOL"));
 
-        // Check Bob's balances
         expect(BALANCES[userB].SOL!.locked).toBe(parseQuantity(7.25, "SOL"));
         expect(BALANCES[userB].INR!.available).toBe(result.actualQuote);
 
-        // Check Alice's balances
         expect(BALANCES[userA].SOL!.available).toBe(aliceBuyQty);
-        expect(BALANCES[userA].INR!.locked).toBe(0n); // Unused lock refunded
+        expect(BALANCES[userA].INR!.locked).toBe(0n);
 
-        // Total Conservation Check
         const totalInrAfter =
             BALANCES[userA].INR!.available + BALANCES[userA].INR!.locked +
             BALANCES[userB].INR!.available + BALANCES[userB].INR!.locked;
@@ -246,7 +234,6 @@ describe("End-to-End Precision & System Integration", () => {
         };
 
         const jsonResult = serializeMatchResultToJson(dummyResult, "SOL");
-        // Must serialize to JSON without throwing TypeError
         let serializedStr = "";
         expect(() => {
             serializedStr = JSON.stringify(jsonResult);
@@ -286,28 +273,22 @@ describe("End-to-End Precision & System Integration", () => {
         expect(typeof obSnapshot!.asks["250000"]).toBe("number");
         expect(obSnapshot!.asks["250000"]).toBe(0.5);
 
-        // Balances snapshot
         const balSnapshot = formatBalancesForPublish("eth-seller");
         expect(balSnapshot).toBeDefined();
         expect(balSnapshot!.balances["INR"]?.available).toBe(50000);
         expect(balSnapshot!.balances["ETH"]?.locked).toBe(0.5);
 
-        // Verify JSON stringify works seamlessly
         expect(() => JSON.stringify(obSnapshot)).not.toThrow();
         expect(() => JSON.stringify(balSnapshot)).not.toThrow();
     });
 
     test("6. Large Number Safety Beyond Number.MAX_SAFE_INTEGER with ETH (18 Decimals)", () => {
-        // 1000 ETH in wei = 1000 * 10^18 = 10^21
-        // Number.MAX_SAFE_INTEGER is 9,007,199,254,740,991 (~9 * 10^15)
         const largeEth = parseQuantity("1000.000000000000000001", "ETH");
         expect(largeEth > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
 
-        // Price = 2,50,000.00 INR (25,000,000 paise)
         const price = parsePrice(250000.00);
         const quotePaise = calculateQuote(largeEth, price, "ETH", "half_up");
 
-        // 1000.000000000000000001 * 250,000 INR = 250,000,000 INR = 25,000,000,000 paise
         expect(quotePaise).toBe(25000000000n);
     });
 
@@ -316,7 +297,6 @@ describe("End-to-End Precision & System Integration", () => {
         const userSeller = "seller-redis-user";
         const userBuyer = "buyer-redis-user";
 
-        // Setup balances
         BALANCES[userSeller] = {
             INR: { available: 0n, locked: 0n, balanceId: "bal-s-inr" },
             SOL: { available: 0n, locked: parseQuantity(5, "SOL"), balanceId: "bal-s-sol" },
@@ -331,7 +311,6 @@ describe("End-to-End Precision & System Integration", () => {
             bids: createTree(),
         };
 
-        // Seed maker ask
         const makerOrder: MemoryOrder = {
             id: `maker-${Date.now()}`,
             userId: userSeller,
@@ -345,7 +324,6 @@ describe("End-to-End Precision & System Integration", () => {
         };
         ORDERBOOK.SOL.asks.set(parsePrice(101.17), [makerOrder]);
 
-        // Create taker market order
         const takerOrder: MemoryOrder = {
             id: testOrderId,
             userId: userBuyer,
@@ -355,16 +333,14 @@ describe("End-to-End Precision & System Integration", () => {
             quantity: parseQuantity(2, "SOL"),
             filledQuantity: 0n,
             status: "PENDING",
-            lockedQuoteAmount: parseInr(202.34), // 2 * 101.17 = 202.34 INR
+            lockedQuoteAmount: parseInr(202.34),
         };
 
-        // Queue packet serialization
         const queuePayload = serializeOrderForQueue(takerOrder, "stock-sol-id");
         expect(typeof queuePayload).toBe("string");
 
         const { redisClient, resultClient } = await import("../redis");
 
-        // Check if Redis is reachable with a short timeout
         let isRedisOnline = false;
         try {
             const pong = await Promise.race([
@@ -395,7 +371,6 @@ describe("End-to-End Precision & System Integration", () => {
             expect(rawResult).not.toBeNull();
             clientResult = JSON.parse(rawResult![1]);
         } else {
-            // Offline fallback: test direct worker execution pipeline with queue deserialization
             const { order: workerOrder, stockId } = deserializeOrderFromQueue(queuePayload);
             const matchResult = await executeOrder(workerOrder, stockId);
             expect(matchResult.status).toBe("FILLED");
@@ -411,12 +386,95 @@ describe("End-to-End Precision & System Integration", () => {
         expect(clientResult.fills[0].price).toBe(101.17);
         expect(clientResult.fills[0].quantity).toBe(2);
 
-        // Verify resting maker order in book was updated to 3 remaining SOL
         expect(makerOrder.filledQuantity).toBe(parseQuantity(2, "SOL"));
         expect(makerOrder.status).toBe("PARTIALLY_FILLED");
 
-        // Verify clean memory balances
         expect(BALANCES[userBuyer].SOL!.available).toBe(parseQuantity(2, "SOL"));
         expect(BALANCES[userSeller].INR!.available).toBe(parseInr(202.34));
+    });
+
+    test("8. lockAndQueueOrder Ingress: validation, pre-locking, and queue delivery", async () => {
+        STOCK_BY_SYMBOL.SOL = { id: "stock-sol-id" };
+
+        const testUser = "usr-queue-tester";
+        BALANCES[testUser] = {
+            INR: { available: parseInr(500.00), locked: 0n, balanceId: "" },
+            SOL: { available: parseQuantity(10, "SOL"), locked: 0n, balanceId: "" },
+        };
+
+        expect(lockAndQueueOrder(testUser, {
+            side: "BUY",
+            type: "LIMIT",
+            symbol: "SOL",
+            price: 600,
+            quantity: 1,
+        })).rejects.toThrow("INSUFFICIENT INR");
+
+        expect(lockAndQueueOrder(testUser, {
+            side: "BUY",
+            type: "LIMIT",
+            symbol: "SOL",
+            price: 100,
+            quantity: 0,
+        })).rejects.toThrow("Quantity must be greater than zero");
+
+        expect(lockAndQueueOrder(testUser, {
+            side: "BUY",
+            type: "LIMIT",
+            symbol: "SOL",
+            quantity: 1,
+        })).rejects.toThrow("Price required for LIMIT order");
+
+        const result = await lockAndQueueOrder(testUser, {
+            side: "BUY",
+            type: "LIMIT",
+            symbol: "SOL",
+            price: 100,
+            quantity: 2,
+        });
+
+        expect(result.orderId).toBeDefined();
+        expect(result.orderQuantity).toBe(parseQuantity(2, "SOL"));
+        expect(result.orderPrice).toBe(parsePrice(100));
+        expect(result.lockedQuoteAmount).toBe(parseInr(200));
+
+        expect(BALANCES[testUser].INR!.available).toBe(parseInr(300));
+        expect(BALANCES[testUser].INR!.locked).toBe(parseInr(200));
+    });
+
+    test("9. Zero-Auth WebSocket Order Handshake: accepts order with verified user context", async () => {
+        STOCK_BY_SYMBOL.SOL = { id: "stock-sol-id" };
+
+        const wsUser = "usr-ws-trader";
+        BALANCES[wsUser] = {
+            INR: { available: parseInr(1000.00), locked: 0n, balanceId: "" },
+            SOL: { available: parseQuantity(5, "SOL"), locked: 0n, balanceId: "" },
+        };
+
+        const wsMessage = {
+            type: "PLACE_ORDER",
+            requestId: "req-ws-42",
+            side: "BUY" as const,
+            orderType: "LIMIT" as const,
+            symbol: "SOL",
+            price: 101.50,
+            quantity: 3,
+        };
+
+        const { orderId, currOrder, estimatedQuoteNum } = await lockAndQueueOrder(wsUser, {
+            side: wsMessage.side,
+            type: wsMessage.orderType,
+            symbol: wsMessage.symbol,
+            price: wsMessage.price,
+            quantity: wsMessage.quantity,
+        });
+
+        expect(orderId).toBeDefined();
+        expect(currOrder.userId).toBe(wsUser);
+        expect(currOrder.status).toBe("PENDING");
+        expect(estimatedQuoteNum).toBe(304.5);
+
+        expect(BALANCES[wsUser].INR!.available).toBe(parseInr(1000 - 304.5));
+        expect(BALANCES[wsUser].INR!.locked).toBe(parseInr(304.5));
     });
 });
