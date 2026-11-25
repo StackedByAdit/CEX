@@ -3,12 +3,22 @@ import BTree from "sorted-btree";
 
 export const ORDERS: MemoryOrder[] = [];
 
-export const BALANCES: Record<string, Record<string, { available: number, locked: number, balanceId: string }>> = {};
+export interface BalanceRecord {
+    available: bigint; // In atomic units (paise for INR, lamports for SOL, units for shares)
+    locked: bigint;
+    balanceId: string;
+}
 
-export const ORDERBOOK: Record<string, { asks: BTree<number, MemoryOrder[]>; bids: BTree<number, MemoryOrder[]> }> = {
-    AXIS: { asks: new BTree(), bids: new BTree() },
-    SOL: { asks: new BTree(), bids: new BTree() },
-    HDFC: { asks: new BTree(), bids: new BTree() },
+export const BALANCES: Record<string, Record<string, BalanceRecord>> = {};
+
+function createOrderTree(): BTree<bigint, MemoryOrder[]> {
+    return new BTree<bigint, MemoryOrder[]>(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+export const ORDERBOOK: Record<string, { asks: BTree<bigint, MemoryOrder[]>; bids: BTree<bigint, MemoryOrder[]> }> = {
+    AXIS: { asks: createOrderTree(), bids: createOrderTree() },
+    SOL: { asks: createOrderTree(), bids: createOrderTree() },
+    HDFC: { asks: createOrderTree(), bids: createOrderTree() },
 };
 
 export const CANDLES: Record<string, {
