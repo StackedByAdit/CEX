@@ -3,18 +3,9 @@ export interface AssetScale {
     unitName: string;
 }
 
-/** Price is always quoted in INR paise (2 decimal places: 100 paise = 1 INR). */
 export const PRICE_DECIMALS = 2;
 export const INR_DECIMALS = 2;
 
-/**
- * Standard scales for listed assets:
- * - INR: 2 decimals (paise)
- * - SOL: 9 decimals (lamports)
- * - BTC: 8 decimals (satoshis)
- * - ETH: 18 decimals (wei)
- * - AXIS/HDFC/equities: 4 decimals (fractional share units, 0.0001 precision)
- */
 export const ASSET_SCALES: Record<string, AssetScale> = {
     INR: { decimals: INR_DECIMALS, unitName: "paise" },
     SOL: { decimals: 9, unitName: "lamports" },
@@ -29,10 +20,6 @@ export function getAssetScale(symbol: string): AssetScale {
     return ASSET_SCALES[sym] ?? { decimals: 4, unitName: "units" };
 }
 
-/**
- * Parses a decimal number or string into fixed-point BigInt with exact scale.
- * Avoids binary floating-point representation errors.
- */
 export function parseUnits(value: string | number, decimals: number): bigint {
     if (typeof value === "bigint") {
         return value;
@@ -51,7 +38,6 @@ export function parseUnits(value: string | number, decimals: number): bigint {
         str = str.slice(1);
     }
 
-    // Convert scientific notation if present (e.g. "1e-5", "2.5e4")
     if (/[eE]/.test(str)) {
         const num = Number(str);
         if (!Number.isFinite(num)) {
@@ -88,9 +74,6 @@ export function parseUnits(value: string | number, decimals: number): bigint {
     return isNeg ? -result : result;
 }
 
-/**
- * Formats a BigInt into a standard decimal string (e.g. 10117n with 2 dec -> "101.17").
- */
 export function formatUnits(value: bigint, decimals: number): string {
     const isNeg = value < 0n;
     const abs = isNeg ? -value : value;
@@ -106,14 +89,10 @@ export function formatUnits(value: bigint, decimals: number): string {
     return isNeg ? `-${res}` : res;
 }
 
-/**
- * Safely converts BigInt atomic units into a JavaScript number for external JSON output.
- */
 export function unitsToNumber(value: bigint, decimals: number): number {
     return Number(formatUnits(value, decimals));
 }
 
-// Helpers for specific asset types
 export function parsePrice(price: string | number): bigint {
     return parseUnits(price, PRICE_DECIMALS);
 }
@@ -155,15 +134,6 @@ export function inrToDecimalString(amountPaise: bigint): string {
 
 export type RoundingMode = "half_up" | "up" | "down";
 
-/**
- * Calculates trade quote in INR paise given baseQuantity and priceInPaise:
- * quotePaise = (baseQuantity * priceInPaise) / 10^baseDecimals
- *
- * Explicit rounding rules:
- * - "half_up": Standard commercial rounding (>= 0.5 rounds up)
- * - "up": Ceil (used for reserve/collateral estimates so buyer never under-allocates)
- * - "down": Floor (pure integer truncation)
- */
 export function calculateQuote(
     baseQuantity: bigint,
     priceInPaise: bigint,
@@ -184,14 +154,9 @@ export function calculateQuote(
     if (rounding === "down") {
         return numerator / divisor;
     }
-    // half_up
     return (numerator + divisor / 2n) / divisor;
 }
 
-/**
- * Calculates basis point fee on quote amount:
- * feePaise = (quotePaise * bps) / 10,000
- */
 export function calculateFee(quotePaise: bigint, bps: bigint, rounding: RoundingMode = "up"): bigint {
     if (quotePaise === 0n || bps === 0n) {
         return 0n;
