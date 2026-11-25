@@ -1,16 +1,27 @@
 import { prisma } from "../prisma";
 import type { MemoryOrder } from "../types/order";
 import { syncOrderStatus } from "./orderSync";
+import { formatUnits, getAssetScale, priceToDecimalString, quantityToDecimalString } from "./precision";
 
-interface BalanceUpdate {
+export interface BalanceUpdate {
     balanceId: string;
-    available: number;
-    locked: number;
+    available: bigint;
+    locked: bigint;
+    symbol: string;
+}
+
+export interface DbFillRecord {
+    stockId: string;
+    symbol: string;
+    buyOrderId: string;
+    sellOrderId: string;
+    price: bigint;
+    quantity: bigint;
 }
 
 // In-memory queues
 const orderBuffer = new Map<string, { order: MemoryOrder; stockId: string }>();
-let fillBuffer: { stockId: string; buyOrderId: string; sellOrderId: string; price: number; quantity: number }[] = [];
+let fillBuffer: DbFillRecord[] = [];
 const balanceBuffer = new Map<string, BalanceUpdate>();
 
 let flushTimer: NodeJS.Timeout | null = null;
@@ -22,14 +33,21 @@ export function queueOrderUpsert(order: MemoryOrder, stockId: string) {
     startFlushTimerIfNeeded();
 }
 
-export function queueFillsInsert(fills: { stockId: string; buyOrderId: string; sellOrderId: string; price: number; quantity: number }[]) {
+export function queueFillsInsert(fills: DbFillRecord[]) {
     fillBuffer.push(...fills);
     startFlushTimerIfNeeded();
 }
 
-export function queueBalanceUpdate(balanceId: string, available: number, locked: number) {
+export function queueBalanceUpdate(
+    balanceId: string,
+    available: bigint | number,
+    locked: bigint | number,
+    symbol: string = "INR"
+) {
     if (!balanceId) return;
-    balanceBuffer.set(balanceId, { balanceId, available, locked });
+    const availBi = typeof available === "bigint" ? available : BigInt(Math.round(available));
+    const lockedBi = typeof locked === "bigint" ? locked : BigInt(Math.round(locked));
+    balanceBuffer.set(balanceId, { balanceId, available: availBi, locked: lockedBi, symbol });
     startFlushTimerIfNeeded();
 }
 
@@ -71,6 +89,7 @@ export async function flushDbBuffer(): Promise<void> {
                 // 1. Bulk Upsert Orders
                 for (const item of ordersToSync) {
                     const { order, stockId } = item;
+                    const scale = getAssetScale(order.symbol);
                     await tx.order.upsert({
                         where: { id: order.id },
                         create: {
@@ -80,12 +99,14 @@ export async function flushDbBuffer(): Promise<void> {
                             side: order.side,
                             type: order.type,
                             status: order.status,
-                            price: order.type === "LIMIT" ? order.price! : null,
-                            quantity: order.quantity,
-                            filledQuantity: order.filledQuantity,
+                            price: order.type === "LIMIT" && order.price != null
+                                ? priceToDecimalString(order.price)
+                                : null,
+                            quantity: quantityToDecimalString(order.quantity, order.symbol),
+                            filledQuantity: quantityToDecimalString(order.filledQuantity, order.symbol),
                         },
                         update: {
-                            filledQuantity: order.filledQuantity,
+                            filledQuantity: quantityToDecimalString(order.filledQuantity, order.symbol),
                             status: order.status,
                         },
                     });
@@ -94,18 +115,25 @@ export async function flushDbBuffer(): Promise<void> {
                 // 2. Bulk Insert Fills
                 if (fillsToSync.length > 0) {
                     await tx.fill.createMany({
-                        data: fillsToSync,
+                        data: fillsToSync.map(f => ({
+                            stockId: f.stockId,
+                            buyOrderId: f.buyOrderId,
+                            sellOrderId: f.sellOrderId,
+                            price: priceToDecimalString(f.price),
+                            quantity: quantityToDecimalString(f.quantity, f.symbol),
+                        })),
                     });
                 }
 
                 // 3. Bulk Update Balances
                 for (const bal of balancesToSync) {
                     if (!bal.balanceId) continue;
+                    const scale = getAssetScale(bal.symbol);
                     await tx.balance.update({
                         where: { id: bal.balanceId },
                         data: {
-                            available: bal.available,
-                            locked: bal.locked,
+                            available: formatUnits(bal.available, scale.decimals),
+                            locked: formatUnits(bal.locked, scale.decimals),
                         },
                     });
                 }
