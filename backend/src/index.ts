@@ -13,14 +13,25 @@ import { initWS } from "./ws";
 import jwt from "jsonwebtoken";
 
 import { loginSchema, orderSchema, signupSchema } from "./schemas/zodSchema";
-import type { MemoryOrder } from "./types/order";
+import { serializeOrderForQueue, type MemoryOrder } from "./types/order";
+import {
+    calculateQuote,
+    formatInr,
+    formatPrice,
+    formatQuantity,
+    getAssetScale,
+    parsePrice,
+    parseQuantity,
+    parseUnits,
+    unitsToNumber,
+} from "./utils/precision";
 import { authMiddleware, type CustomRequest } from "./middleware/authMiddleware";
 import { assureBalance } from "./utils/assureBalance";
 import { ORDERS, ORDERBOOK, BALANCES, CANDLES, STOCK_BY_SYMBOL } from "./state";
 import { advanceCandlesIfNeeded, getCandleSnapshot } from "./utils/candle";
-import { estimateMarketBuy, estimateMarketSell, roundInr, roundQty } from "./utils/marketOrder";
+import { estimateMarketBuy, estimateMarketSell } from "./utils/marketOrder";
 import { restoreOpenOrders } from "./utils/orderSync";
-import { publishBalance, publishOrderbook } from "./utils/publish";
+import { formatBalancesForPublish, publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
 import { runWorker } from "./worker";
 import { redisClient, resultClient } from "./redis";
@@ -80,8 +91,8 @@ app.post("/signup", async (req: Request, res: Response) => {
                 if (!BALANCES[newUser.id]) BALANCES[newUser.id] = {};
 
                 BALANCES[newUser.id]![stock.symbol] = {
-                    available: 0,
-                    locked: 0,
+                    available: 0n,
+                    locked: 0n,
                     balanceId: balance.id
                 };
             })
@@ -97,8 +108,8 @@ app.post("/signup", async (req: Request, res: Response) => {
         });
 
         BALANCES[newUser.id]!["INR"] = {
-            available: 0,
-            locked: 0,
+            available: 0n,
+            locked: 0n,
             balanceId: inrBalance.id
         };
 
@@ -176,33 +187,42 @@ app.post("/logout", (_req: Request, res: Response) => {
 app.post("/deposit", authMiddleware, async (req: CustomRequest, res: Response) => {
 
     const { amount, symbol } = req.body;
-
-    const MAX_DEPOSIT_AMOUNT = 100_000_000_000;
-    const depositAmount = Number(amount);
-    if (!Number.isFinite(depositAmount) || depositAmount <= 0 || depositAmount > MAX_DEPOSIT_AMOUNT) {
-        return res.status(400).json({ message: "Invalid deposit amount" });
-    }
-
-    const userId = req.id!;
     const assetSymbol = symbol && typeof symbol === "string" ? symbol.toUpperCase() : "INR";
 
     if (assetSymbol !== "INR" && !STOCK_BY_SYMBOL[assetSymbol]) {
         return res.status(400).json({ message: "Stock not found" });
     }
 
+    const scale = getAssetScale(assetSymbol);
+    let depositAmount: bigint;
+    try {
+        depositAmount = parseUnits(amount, scale.decimals);
+    } catch {
+        return res.status(400).json({ message: "Invalid deposit amount" });
+    }
+
+    const MAX_DEPOSIT_UNITS = 100_000_000_000n * (10n ** BigInt(scale.decimals));
+    if (depositAmount <= 0n || depositAmount > MAX_DEPOSIT_UNITS) {
+        return res.status(400).json({ message: "Invalid deposit amount" });
+    }
+
+    const userId = req.id!;
+
     try {
         const balance = await assureBalance(userId, assetSymbol);
         balance.available += depositAmount;
 
-        queueBalanceUpdate(balance.balanceId, balance.available, balance.locked);
+        queueBalanceUpdate(balance.balanceId, balance.available, balance.locked, assetSymbol);
         publishBalance(userId);
         await flushDbBuffer();
+
+        const formatted = formatBalancesForPublish(userId);
 
         return res.status(200).json({
             message: "Deposit successful",
             symbol: assetSymbol,
-            available: balance.available,
-            balances: BALANCES[userId]
+            available: unitsToNumber(balance.available, scale.decimals),
+            balances: formatted?.balances ?? {},
         });
     } catch (err: any) {
         if (err?.message?.startsWith("Stock not found")) {
@@ -222,7 +242,27 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     }
 
     const { side, type, symbol, price, quantity } = order.data;
-    const orderQuantity = roundQty(quantity);
+    let orderQuantity: bigint;
+    try {
+        orderQuantity = parseQuantity(quantity, symbol);
+    } catch {
+        return res.status(400).json({ message: "Invalid quantity" });
+    }
+    if (orderQuantity <= 0n) {
+        return res.status(400).json({ message: "Quantity must be greater than zero" });
+    }
+
+    let orderPrice: bigint | undefined;
+    if (type === "LIMIT" && price !== undefined) {
+        try {
+            orderPrice = parsePrice(price);
+        } catch {
+            return res.status(400).json({ message: "Invalid price" });
+        }
+        if (orderPrice <= 0n) {
+            return res.status(400).json({ message: "Price must be greater than zero" });
+        }
+    }
 
     const userId = req.id!;
 
@@ -235,7 +275,10 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     }
 
     if (!ORDERBOOK[symbol]) {
-        ORDERBOOK[symbol] = { bids: new BTree(), asks: new BTree() };
+        ORDERBOOK[symbol] = {
+            bids: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+            asks: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+        };
     }
 
     const stockId = stock.id;
@@ -250,13 +293,13 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
     const inrBalance = BALANCES[userId]!.INR!;
     const stockBalance = BALANCES[userId]![symbol]!;
 
-    let lockedQuoteAmount: number | undefined;
+    let lockedQuoteAmount: bigint | undefined;
 
     if (side == "BUY") {
 
         if (type == "LIMIT") {
 
-            const amount = roundInr(price! * orderQuantity);
+            const amount = calculateQuote(orderQuantity, orderPrice!, symbol, "up");
 
             if (inrBalance.available < amount) {
                 return res.status(400).json({ message: "INSUFFICIENT INR" });
@@ -265,13 +308,15 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
             inrBalance.available -= amount;
             inrBalance.locked += amount;
 
-            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
+            lockedQuoteAmount = amount;
+
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked, "INR");
         }
 
         if (type === "MARKET") {
             const estimate = estimateMarketBuy(symbol, orderQuantity);
 
-            if (estimate.fillableQuantity <= 0) {
+            if (estimate.fillableQuantity <= 0n) {
                 return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
             }
 
@@ -284,7 +329,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
             inrBalance.available -= lockedQuoteAmount;
             inrBalance.locked += lockedQuoteAmount;
 
-            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked, "INR");
         }
 
     } else {
@@ -295,7 +340,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
 
         if (type === "MARKET") {
             const estimate = estimateMarketSell(symbol, orderQuantity);
-            if (estimate.fillableQuantity <= 0) {
+            if (estimate.fillableQuantity <= 0n) {
                 return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
             }
         }
@@ -303,7 +348,7 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         stockBalance.available -= orderQuantity;
         stockBalance.locked += orderQuantity;
 
-        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
+        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked, symbol);
     }
 
     const orderId = crypto.randomUUID();
@@ -315,28 +360,35 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         symbol,
         type,
         status: "PENDING",
-        price: type === "LIMIT" ? price : undefined,
+        price: orderPrice,
         quantity: orderQuantity,
-        filledQuantity: 0,
+        filledQuantity: 0n,
         lockedQuoteAmount,
     };
 
-    await redisClient.lpush("queue:orders", JSON.stringify({ ...currOrder, stockId }));
+    await redisClient.lpush("queue:orders", serializeOrderForQueue(currOrder, stockId));
     const rawResult = await resultClient.brpop(`result:${orderId}`, 5);
     if (!rawResult) {
         return res.status(504).json({ message: "Order processing timeout" });
     }
     const result = JSON.parse(rawResult[1]);
 
+    const estimatedQuoteNum = lockedQuoteAmount !== undefined
+        ? formatInr(lockedQuoteAmount)
+        : (type === "LIMIT" && side === "BUY" ? formatInr(calculateQuote(orderQuantity, orderPrice!, symbol, "up")) : undefined);
+
+    const filledQuantityBi = parseQuantity(result.filledQuantity, symbol);
+    const remainingBi = orderQuantity > filledQuantityBi ? orderQuantity - filledQuantityBi : 0n;
+
     return res.status(200).json({
         orderId,
         status: result.status,
         filledQuantity: result.filledQuantity,
-        remainingQuantity: roundQty(orderQuantity - result.filledQuantity),
+        remainingQuantity: formatQuantity(remainingBi, symbol),
         fills: result.fills,
         actualQuote: result.actualQuote,
         refundQuote: result.refundQuote,
-        estimatedQuote: lockedQuoteAmount ?? (type === "LIMIT" && side === "BUY" ? roundInr(price! * orderQuantity) : undefined),
+        estimatedQuote: estimatedQuoteNum,
     });
 });
 
@@ -376,16 +428,19 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             side: dbOrder.side,
             type: dbOrder.type,
             symbol: dbOrder.stock.symbol,
-            price: dbOrder.price.toNumber(),
-            quantity: dbOrder.quantity.toNumber(),
-            filledQuantity: dbOrder.filledQuantity.toNumber(),
+            price: parsePrice(dbOrder.price.toString()),
+            quantity: parseQuantity(dbOrder.quantity.toString(), dbOrder.stock.symbol),
+            filledQuantity: parseQuantity(dbOrder.filledQuantity.toString(), dbOrder.stock.symbol),
             status: dbOrder.status,
         };
 
         ORDERS.push(newOrder);
 
         if (!ORDERBOOK[newOrder.symbol]) {
-            ORDERBOOK[newOrder.symbol] = { bids: new BTree(), asks: new BTree() };
+            ORDERBOOK[newOrder.symbol] = {
+            bids: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+            asks: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+        };
         }
         const firm = ORDERBOOK[newOrder.symbol]!;
         const bookSide = newOrder.side === "BUY" ? firm.bids : firm.asks;
@@ -445,18 +500,19 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
         queueOrderUpsert(order, stockId);
     }
 
-    const price = order.price;
-    const quantity = roundQty(order.quantity - order.filledQuantity);
+    const quantity = order.quantity - order.filledQuantity;
 
-    if (quantity > 0) {
+    if (quantity > 0n) {
         if (order.side === "BUY") {
             const inrBalance = await assureBalance(order.userId, "INR");
-            const refundAmount = roundInr(price * quantity);
+            const refundAmount = order.lockedQuoteAmount ?? calculateQuote(quantity, order.price!, order.symbol, "up");
 
             inrBalance.available += refundAmount;
             inrBalance.locked -= refundAmount;
 
-            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked);
+            order.lockedQuoteAmount = undefined;
+
+            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked, "INR");
 
         } else {
             const stockBalance = await assureBalance(order.userId, order.symbol);
@@ -464,7 +520,7 @@ app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Re
             stockBalance.available += quantity;
             stockBalance.locked -= quantity;
 
-            queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked);
+            queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked, order.symbol);
         }
     }
 
@@ -506,20 +562,20 @@ app.get("/orderbook/:symbol", authMiddleware, async (req: CustomRequest, res: Re
 
     const bids: Record<string, number> = {};
     for (const [price, orders] of firm.bids.entriesReversed()) {
-        let total = 0;
+        let total = 0n;
         for (const order of orders) {
             total += order.quantity - order.filledQuantity;
         }
-        bids[price] = total;
+        bids[formatPrice(price).toString()] = formatQuantity(total, symbol);
     }
 
     const asks: Record<string, number> = {};
     for (const [price, orders] of firm.asks.entries()) {
-        let total = 0;
+        let total = 0n;
         for (const order of orders) {
             total += order.quantity - order.filledQuantity;
         }
-        asks[price] = total;
+        asks[formatPrice(price).toString()] = formatQuantity(total, symbol);
     }
 
     return res.status(200).json({ bids, asks });
@@ -529,16 +585,28 @@ app.get("/balance", authMiddleware, async (req: CustomRequest, res: Response) =>
 
     const userId = req.id!;
 
-    if (BALANCES[userId]) {
-        return res.json({ balances: BALANCES[userId] });
+    if (!BALANCES[userId]) {
+        await assureBalance(userId, "INR");
+        const balances = await prisma.balance.findMany({
+            where: { userId },
+            include: { stock: true }
+        });
+        if (!BALANCES[userId]) BALANCES[userId] = {};
+        for (const bal of balances) {
+            const sym = bal.assetType === "INR" ? "INR" : bal.stock!.symbol;
+            const scale = getAssetScale(sym);
+            if (!BALANCES[userId]![sym]) {
+                BALANCES[userId]![sym] = {
+                    available: parseUnits(bal.available.toString(), scale.decimals),
+                    locked: parseUnits(bal.locked.toString(), scale.decimals),
+                    balanceId: bal.id,
+                };
+            }
+        }
     }
 
-    const balances = await prisma.balance.findMany({
-        where: { userId },
-        include: { stock: true }
-    });
-
-    return res.json({ balances });
+    const formatted = formatBalancesForPublish(userId);
+    return res.json({ balances: formatted?.balances ?? {} });
 });
 
 app.get("/trades/personal", authMiddleware, async (req: CustomRequest, res: Response) => {
@@ -640,18 +708,22 @@ async function bootstrap() {
     for (const stock of stocks) {
         STOCK_BY_SYMBOL[stock.symbol] = { id: stock.id };
         if (!ORDERBOOK[stock.symbol]) {
-            ORDERBOOK[stock.symbol] = { bids: new BTree(), asks: new BTree() };
+            ORDERBOOK[stock.symbol] = {
+                bids: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+                asks: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+            };
         }
     }
 
     const balances = await prisma.balance.findMany({ include: { stock: true } });
     for (const balance of balances) {
         const symbol = balance.assetType === "INR" ? "INR" : balance.stock!.symbol;
+        const scale = getAssetScale(symbol);
         if (!BALANCES[balance.userId]) BALANCES[balance.userId] = {};
         BALANCES[balance.userId]![symbol] = {
-            available: balance.available.toNumber(),
-            locked: balance.locked.toNumber(),
-            balanceId: balance.id
+            available: parseUnits(balance.available.toString(), scale.decimals),
+            locked: parseUnits(balance.locked.toString(), scale.decimals),
+            balanceId: balance.id,
         };
     }
 
