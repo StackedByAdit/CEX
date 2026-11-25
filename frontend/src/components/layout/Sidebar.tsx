@@ -43,7 +43,6 @@ export default function Sidebar({
 
   return (
     <aside className="hidden w-14 shrink-0 flex-col bg-orbit-panel/80 backdrop-blur-md border-r border-white/5 lg:flex relative z-40">
-      {/* Spot / Trading */}
       <button
         title="Spot Trading"
         onClick={() => onSelectTab("spot")}
@@ -56,7 +55,6 @@ export default function Sidebar({
         <TrendingUp size={20} strokeWidth={1.5} />
       </button>
 
-      {/* Futures */}
       <div className="relative w-full">
         <button
           title="Futures"
@@ -69,7 +67,6 @@ export default function Sidebar({
 
         {notification === "futures" && (
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#12141d]/95 backdrop-blur-xl px-3.5 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.6),0_0_20px_rgba(99,102,241,0.15)] text-xs text-white whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-200">
-            {/* Arrow pointing to icon */}
             <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-[#12141d] border-b border-l border-white/10 rotate-45" />
             <span className="relative z-10 flex items-center gap-2 font-medium">
               <span className="h-2 w-2 rounded-full bg-yellow-400 shrink-0" />
@@ -89,7 +86,6 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Options */}
       <div className="relative w-full">
         <button
           title="Options"
@@ -102,7 +98,6 @@ export default function Sidebar({
 
         {notification === "options" && (
           <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50 flex items-center gap-2.5 rounded-xl border border-white/10 bg-[#12141d]/95 backdrop-blur-xl px-3.5 py-2.5 shadow-[0_10px_30px_rgba(0,0,0,0.6),0_0_20px_rgba(99,102,241,0.15)] text-xs text-white whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-200">
-            {/* Arrow pointing to icon */}
             <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-[#12141d] border-b border-l border-white/10 rotate-45" />
             <span className="relative z-10 flex items-center gap-2 font-medium">
               <span className="h-2 w-2 rounded-full bg-yellow-400 shrink-0" />
@@ -122,7 +117,6 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Wallet - Switches View on Main Screen */}
       <button
         title="Wallet & Assets"
         onClick={() => onSelectTab("wallet")}
@@ -135,7 +129,6 @@ export default function Sidebar({
         <Wallet size={20} strokeWidth={1.5} />
       </button>
 
-      {/* History - Switches View on Main Screen */}
       <button
         title="Trade & Order History"
         onClick={() => onSelectTab("history")}
@@ -147,7 +140,7 @@ export default function Sidebar({
       >
         <History size={20} strokeWidth={1.5} />
       </button>
-      {/* Simulator */}
+
       <button
         title="Market Simulator"
         onClick={() => onSelectTab("simulator")}

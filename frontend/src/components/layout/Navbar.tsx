@@ -49,7 +49,6 @@ export default function Navbar({
     }
   }
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -100,7 +99,6 @@ export default function Navbar({
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Dedicated Quick Simulator Toggle Button */}
         <button
           onClick={onToggleSimulator}
           title="Toggle Market Simulator Panel"
@@ -121,13 +119,11 @@ export default function Navbar({
           <Bell size={16} />
         </button>
 
-        {/* User avatar + dropdown */}
         <div ref={dropdownRef} className="relative z-[100]">
           <button
             onClick={() => setDropdownOpen((v) => !v)}
             className="flex items-center gap-2 rounded-full pl-1 pr-2 py-1 transition hover:bg-white/5 group cursor-pointer"
           >
-            {/* Avatar circle */}
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-[11px] font-bold text-white shadow-lg ring-2 ring-white/10">
               {initials}
             </div>
@@ -142,10 +138,8 @@ export default function Navbar({
             />
           </button>
 
-          {/* Dropdown menu */}
           {dropdownOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-white/10 bg-[#121212]/95 backdrop-blur-2xl shadow-[0_16px_50px_rgba(0,0,0,0.9),0_0_25px_rgba(99,102,241,0.2)] overflow-hidden z-[100]">
-              {/* Profile header with Username & Signed in status */}
               <div className="px-4 py-3 border-b border-white/5 bg-white/[0.02]">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white shadow ring-2 ring-indigo-500/20">
@@ -163,7 +157,6 @@ export default function Navbar({
                 </div>
               </div>
 
-              {/* Menu items: Wallet, Divider, Log out */}
               <div className="py-1">
                 <button
                   onClick={handleWalletClick}
