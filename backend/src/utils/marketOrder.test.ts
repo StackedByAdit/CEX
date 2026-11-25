@@ -56,7 +56,6 @@ describe("marketOrder utils", () => {
         const estimate = estimateMarketBuy("SOL", qty);
 
         expect(estimate.fillableQuantity).toBe(qty);
-        // 2 SOL @ 100 INR + 1 SOL @ 102 INR = 302 INR (30200 paise)
         const expectedQuote = parseInr(100 * 2 + 102 * 1);
         expect(estimate.estimatedQuote).toBe(expectedQuote);
     });
@@ -74,7 +73,6 @@ describe("marketOrder utils", () => {
         const estimate = estimateMarketSell("SOL", parseQuantity(5, "SOL"));
 
         expect(estimate.fillableQuantity).toBe(parseQuantity(5, "SOL"));
-        // 4 SOL @ 98 INR + 1 SOL @ 95 INR = 392 + 95 = 487 INR (48700 paise)
         expect(estimate.estimatedQuote).toBe(parseInr(98 * 4 + 95 * 1));
     });
 
@@ -210,7 +208,6 @@ describe("matchOrder market refunds", () => {
         asks.set(parsePrice(100), [restingSell]);
         ORDERBOOK.SOL = { asks, bids: createTree() };
 
-        // Buyer locks 105 INR * 10 = 1050 INR
         const initialLocked = parseInr(1050);
         BALANCES["buyer-p1"] = {
             INR: { available: 0n, locked: initialLocked, balanceId: "inr-bp1" },
@@ -234,8 +231,8 @@ describe("matchOrder market refunds", () => {
         const result = matchOrder(limitBuy, "stock-id");
 
         expect(result.status).toBe("FILLED");
-        expect(result.actualQuote).toBe(parseInr(1000)); // 10 * 100 = 1000 INR
-        expect(result.refundQuote).toBe(parseInr(50));   // 50 INR savings refunded
+        expect(result.actualQuote).toBe(parseInr(1000));
+        expect(result.refundQuote).toBe(parseInr(50));
         expect(BALANCES["buyer-p1"]!.INR!.locked).toBe(0n);
         expect(BALANCES["buyer-p1"]!.INR!.available).toBe(parseInr(50));
         expect(BALANCES["buyer-p1"]!.SOL!.available).toBe(parseQuantity(10, "SOL"));
@@ -249,12 +246,11 @@ describe("matchOrder market refunds", () => {
             side: "SELL",
             symbol: "SOL",
             price: parsePrice(100),
-            quantity: parseQuantity(4, "SOL"), // only 4 available
+            quantity: parseQuantity(4, "SOL"),
         });
         asks.set(parsePrice(100), [restingSell]);
         ORDERBOOK.SOL = { asks, bids: createTree() };
 
-        // Buyer wants 10 SOL @ 105 INR (locks 1050 INR)
         const initialLocked = parseInr(1050);
         BALANCES["buyer-part"] = {
             INR: { available: 0n, locked: initialLocked, balanceId: "inr-bpart" },
@@ -279,14 +275,11 @@ describe("matchOrder market refunds", () => {
 
         expect(result.status).toBe("PARTIALLY_FILLED");
         expect(result.filledQuantity).toBe(parseQuantity(4, "SOL"));
-        expect(result.actualQuote).toBe(parseInr(400)); // 4 * 100 = 400 INR
-        // 4 units @ 100 INR instead of 105 INR -> 20 INR price improvement refund
+        expect(result.actualQuote).toBe(parseInr(400));
         expect(result.refundQuote).toBe(parseInr(20));
         expect(BALANCES["buyer-part"]!.INR!.available).toBe(parseInr(20));
-        // Remaining 6 SOL @ 105 INR rests on book with exactly 630 INR locked
         expect(BALANCES["buyer-part"]!.INR!.locked).toBe(parseInr(630));
         expect(limitBuy.lockedQuoteAmount).toBe(parseInr(630));
-        // Rested on bid side of book
         expect(ORDERBOOK.SOL.bids.get(parsePrice(105))?.length).toBe(1);
     });
 });
