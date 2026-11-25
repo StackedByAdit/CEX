@@ -8,8 +8,8 @@ export interface MarketWalkFill {
 
 export interface MarketWalkResult {
     fillableQuantity: bigint;
-    estimatedQuote: bigint; // in INR paise
-    averagePrice: bigint;   // in INR paise
+    estimatedQuote: bigint;
+    averagePrice: bigint;
     fills: MarketWalkFill[];
 }
 
@@ -40,7 +40,6 @@ export function walkAsks(symbol: string, quantity: bigint): MarketWalkResult {
 
         const take = remaining < available ? remaining : available;
         fills.push({ price, quantity: take });
-        // Use "up" rounding for estimates so buyer collateral never under-allocates
         const tradeQuote = calculateQuote(take, price, symbol, "up");
         estimatedQuote += tradeQuote;
         remaining -= take;

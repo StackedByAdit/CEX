@@ -17,8 +17,8 @@ export interface MatchResult {
     fillRecords: MatchFillRecord[];
     counterPartyOrders: MemoryOrder[];
     counterPartyUserIds: string[];
-    actualQuote: bigint; // in INR paise
-    refundQuote: bigint; // in INR paise
+    actualQuote: bigint;
+    refundQuote: bigint;
 }
 
 export interface JsonMatchResult {
@@ -96,7 +96,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 const buyerStock = getBalance(order.userId, order.symbol);
                 const buyerInr = getBalance(order.userId, "INR");
 
-                // Debit/Credit settlement in atomic units
                 buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
@@ -149,7 +148,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 const sellerStock = getBalance(order.userId, order.symbol);
                 const sellerInr = getBalance(order.userId, "INR");
 
-                // Debit/Credit settlement in atomic units
                 buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
@@ -194,7 +192,6 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
         }
     }
 
-    // If limit order has unfilled quantity, place remaining on resting book
     if (order.filledQuantity < order.quantity && order.type === "LIMIT") {
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
         let ordersAtPrice = bookSide.get(order.price!);
