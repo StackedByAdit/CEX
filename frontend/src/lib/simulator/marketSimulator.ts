@@ -1,6 +1,3 @@
-// Market Simulator Engine — headless bot trading engine
-// Uses raw fetch() with Bearer tokens (NOT api.ts / cookies)
-
 const BASE_URL = "";
 const BOT_PASSWORD = "sim-orbit-pass-2025";
 
@@ -35,7 +32,6 @@ interface SimBot {
   fundedSymbols: Set<string>;
 }
 
-// In-memory cache for bot sessions across simulator restarts
 const BOT_SESSION_CACHE = new Map<number, SimBot>();
 
 interface PlaceOrderPayload {
@@ -51,7 +47,6 @@ interface OrderbookResponse {
   asks: Record<string, number>;
 }
 
-// Aggression → % of orders that cross the spread (market/crossing)
 const CROSS_RATE: Record<SimulatorConfig["aggression"], number> = {
   passive: 0.05,
   mixed: 0.3,
@@ -88,7 +83,6 @@ export class MarketSimulator {
     activeBots: 0,
   };
 
-  // TPS tracking
   private orderCountThisSecond = 0;
   private tpsInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -114,7 +108,6 @@ export class MarketSimulator {
     };
     this.orderCountThisSecond = 0;
 
-    // Start TPS tracking
     this.tpsInterval = setInterval(() => {
       const tps = this.orderCountThisSecond;
       this.orderCountThisSecond = 0;
@@ -122,7 +115,6 @@ export class MarketSimulator {
       this.emitStats();
     }, 1000);
 
-    // Provision & start all bots
     const provisionPromises: Promise<void>[] = [];
     for (let i = 1; i <= this.config.botCount; i++) {
       provisionPromises.push(this.provisionAndRun(i));
@@ -132,7 +124,6 @@ export class MarketSimulator {
 
   stop(): void {
     this.running = false;
-    // Clear all scheduled timers
     for (const t of this.timers) {
       clearTimeout(t);
     }
@@ -151,7 +142,6 @@ export class MarketSimulator {
     this.config = { ...this.config, ...partial };
 
     if (botCountChanged && this.running) {
-      // Provision new bots if count increased
       const currentCount = this.bots.length;
       const newCount = this.config.botCount;
       if (newCount > currentCount) {
@@ -159,8 +149,6 @@ export class MarketSimulator {
           void this.provisionAndRun(i);
         }
       }
-      // If count decreased, bots will naturally idle when they loop and find running=false for their id
-      // (simplest approach: just let existing bots keep running — they'll be stopped on stop())
     }
   }
 
@@ -182,7 +170,6 @@ export class MarketSimulator {
       bot = { id, username, token: null, fundedSymbols: new Set() };
     }
 
-    // 1. Try login first (fast path for already registered bots)
     if (!bot.token) {
       try {
         const loginRes = await fetch(`${BASE_URL}/login`, {
@@ -201,12 +188,9 @@ export class MarketSimulator {
             ok: true,
           });
         }
-      } catch {
-        // Will try signup below
-      }
+      } catch {}
     }
 
-    // 2. If login failed (user doesn't exist yet in DB), try signup
     if (!bot.token) {
       try {
         const signupRes = await fetch(`${BASE_URL}/signup`, {
@@ -215,7 +199,6 @@ export class MarketSimulator {
           body: JSON.stringify({ username, password: BOT_PASSWORD }),
         });
 
-        // 400 with "User already exists" or 409 is expected if race condition occurs
         if (!signupRes.ok && signupRes.status !== 400 && signupRes.status !== 409) {
           const text = await signupRes.text();
           this.onLog({
@@ -236,7 +219,6 @@ export class MarketSimulator {
         });
       }
 
-      // 3. Login after signup
       try {
         const loginRes = await fetch(`${BASE_URL}/login`, {
           method: "POST",
@@ -276,18 +258,15 @@ export class MarketSimulator {
       }
     }
 
-    // Cache authenticated bot
     if (bot.token) {
       BOT_SESSION_CACHE.set(id, bot);
     }
 
-    // 4. Fund bot with INR if needed
     if (bot.token && !bot.fundedSymbols.has("INR")) {
       await this.depositFunds(bot, "INR", 500000);
       bot.fundedSymbols.add("INR");
     }
 
-    // 5. Fund bot with target symbol if needed
     if (bot.token && !bot.fundedSymbols.has(this.config.symbol)) {
       await this.depositFunds(bot, this.config.symbol, 5000);
       bot.fundedSymbols.add(this.config.symbol);
@@ -330,10 +309,9 @@ export class MarketSimulator {
   private scheduleBot(bot: SimBot): void {
     if (!this.running || !bot.token) return;
 
-    // Check that this bot is still within the configured bot count
     if (bot.id > this.config.botCount) return;
 
-    const jitter = rand(0.6, 1.4); // ±40%
+    const jitter = rand(0.6, 1.4);
     const delay = Math.round(this.config.intervalMs * jitter);
 
     const t = setTimeout(() => {
@@ -350,7 +328,6 @@ export class MarketSimulator {
   private async runBot(bot: SimBot): Promise<void> {
     if (!this.running || !bot.token) return;
 
-    // Fetch orderbook with depth
     let bestBid = 0;
     let bestAsk = 0;
     let totalBidDepth = 0;
@@ -376,15 +353,12 @@ export class MarketSimulator {
           totalAskDepth = askEntries.reduce((sum, e) => sum + e.qty, 0);
         }
       }
-    } catch {
-      // fallback
-    }
+    } catch {}
 
     const fallbackPrice = 100;
     const hasBids = bestBid > 0 && totalBidDepth > 0;
     const hasAsks = bestAsk > 0 && totalAskDepth > 0;
 
-    // Decide order parameters
     const crossRate = CROSS_RATE[this.config.aggression];
     const willCross = Math.random() < crossRate;
     let side: "BUY" | "SELL" = Math.random() < 0.5 ? "BUY" : "SELL";
@@ -392,13 +366,9 @@ export class MarketSimulator {
 
     let payload: PlaceOrderPayload;
 
-    // LIQUIDITY AWARENESS:
-    // If attempting a market order, verify that the counterparty side actually has resting orders.
-    // If not, automatically switch to a LIMIT order to provide liquidity and build the book.
     if (willCross) {
       if (side === "BUY") {
         if (hasAsks) {
-          // Asks exist: safe to place BUY MARKET
           const maxTake = Math.max(1, Math.floor(totalAskDepth));
           payload = {
             side: "BUY",
@@ -407,8 +377,6 @@ export class MarketSimulator {
             quantity: Math.min(quantity, maxTake),
           };
         } else {
-          // No asks exist: cannot BUY MARKET (would cause INSUFFICIENT LIQUIDITY)
-          // Act as a market maker: place a SELL LIMIT order to replenish asks!
           const askPrice = hasBids ? Math.round(bestBid * 1.008 * 100) / 100 : fallbackPrice * 1.01;
           payload = {
             side: "SELL",
@@ -419,9 +387,7 @@ export class MarketSimulator {
           };
         }
       } else {
-        // side === "SELL"
         if (hasBids) {
-          // Bids exist: safe to place SELL MARKET
           const maxTake = Math.max(1, Math.floor(totalBidDepth));
           payload = {
             side: "SELL",
@@ -430,8 +396,6 @@ export class MarketSimulator {
             quantity: Math.min(quantity, maxTake),
           };
         } else {
-          // No bids exist: cannot SELL MARKET (would cause INSUFFICIENT LIQUIDITY)
-          // Act as a market maker: place a BUY LIMIT order to replenish bids!
           const bidPrice = hasAsks ? Math.round(bestAsk * 0.992 * 100) / 100 : fallbackPrice * 0.99;
           payload = {
             side: "BUY",
@@ -443,7 +407,6 @@ export class MarketSimulator {
         }
       }
     } else {
-      // Passive LIMIT order (Market Making / Liquidity Provision)
       let price: number;
       if (side === "BUY") {
         if (hasBids && hasAsks && bestAsk > bestBid) {
@@ -456,7 +419,6 @@ export class MarketSimulator {
           price = rand(fallbackPrice * 0.98, fallbackPrice * 0.995);
         }
       } else {
-        // SELL
         if (hasBids && hasAsks && bestAsk > bestBid) {
           price = rand(Math.max(bestAsk * 0.999, bestBid + 0.01), bestAsk * 1.008);
         } else if (hasAsks) {
@@ -478,7 +440,6 @@ export class MarketSimulator {
       };
     }
 
-    // Place the order
     try {
       const res = await fetch(`${BASE_URL}/order`, {
         method: "POST",
@@ -512,7 +473,6 @@ export class MarketSimulator {
       } else {
         const text = await res.text();
         if (res.status === 400 && text.includes("INSUFFICIENT LIQUIDITY")) {
-          // Handled gracefully: transient liquidity gap between concurrent bots
           this.onLog({
             time: nowTime(),
             botId: bot.id,

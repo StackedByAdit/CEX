@@ -43,7 +43,6 @@ export default function SimulatorDropdown({
 
   const [, setTick] = useState(0);
 
-  // Keep stats fresh
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
@@ -56,7 +55,6 @@ export default function SimulatorDropdown({
 
   return (
     <div className="fixed top-14 right-4 z-[90] w-[400px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#10131c]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_30px_rgba(99,102,241,0.2)] text-white overflow-hidden animate-in fade-in slide-in-from-top-3 duration-200">
-      {/* ── Dropdown Header ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-white/[0.02]">
         <div className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
@@ -94,9 +92,7 @@ export default function SimulatorDropdown({
         </div>
       </div>
 
-      {/* ── Body Content ── */}
       <div className="p-4 space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto">
-        {/* Trader Slider */}
         <div className="space-y-1.5 bg-white/[0.02] border border-white/5 rounded-xl p-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-orbit-secondary flex items-center gap-1.5">
@@ -141,9 +137,7 @@ export default function SimulatorDropdown({
           </div>
         </div>
 
-        {/* Configuration Row */}
         <div className="grid grid-cols-3 gap-2">
-          {/* Symbol */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase tracking-wide text-orbit-secondary block">
               Pair
@@ -166,7 +160,6 @@ export default function SimulatorDropdown({
             </select>
           </div>
 
-          {/* Speed */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase tracking-wide text-orbit-secondary block">
               Speed
@@ -189,7 +182,6 @@ export default function SimulatorDropdown({
             </div>
           </div>
 
-          {/* Aggression */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase tracking-wide text-orbit-secondary block">
               Mode
@@ -213,7 +205,6 @@ export default function SimulatorDropdown({
           </div>
         </div>
 
-        {/* Start / Stop Button */}
         <div>
           {!isRunning ? (
             <button
@@ -234,7 +225,6 @@ export default function SimulatorDropdown({
           )}
         </div>
 
-        {/* Metrics Bar */}
         <div className="grid grid-cols-4 gap-2 bg-white/[0.02] border border-white/5 rounded-xl p-2.5 text-center">
           <div>
             <span className="text-[9px] uppercase tracking-wider text-orbit-secondary block">TPS</span>
@@ -254,7 +244,6 @@ export default function SimulatorDropdown({
           </div>
         </div>
 
-        {/* ── Simplified 1-Sentence Status Bar ── */}
         <div
           className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs border transition-all duration-200 ${
             !isRunning
@@ -266,7 +255,6 @@ export default function SimulatorDropdown({
               : "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
           }`}
         >
-          {/* Status Indicator Icon */}
           <div className="shrink-0 flex items-center justify-center w-2.5 h-2.5">
             {!isRunning ? (
               <span className="w-2 h-2 rounded-full bg-white/30 block" />
@@ -279,7 +267,6 @@ export default function SimulatorDropdown({
             )}
           </div>
 
-          {/* 1-Sentence Status Text */}
           <div className="flex-1 min-w-0 leading-tight">
             <span className="font-semibold uppercase tracking-wider text-[10px] mr-1.5 opacity-80">
               {!isRunning
@@ -302,7 +289,6 @@ export default function SimulatorDropdown({
           </div>
         </div>
 
-        {/* Mini Live Ticker (Last 3 orders) */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px] text-orbit-secondary">
             <span className="flex items-center gap-1 uppercase tracking-wide">
