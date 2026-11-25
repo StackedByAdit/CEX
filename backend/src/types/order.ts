@@ -4,11 +4,11 @@ export type MemoryOrder = {
     side: "BUY" | "SELL";
     type: "LIMIT" | "MARKET";
     symbol: string;
-    price?: bigint;              // Price in INR paise (2 decimals)
-    quantity: bigint;           // Quantity in base atomic units
-    filledQuantity: bigint;     // Filled quantity in base atomic units
+    price?: bigint;
+    quantity: bigint;
+    filledQuantity: bigint;
     status: "PENDING" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED";
-    lockedQuoteAmount?: bigint; // Locked quote amount in INR paise
+    lockedQuoteAmount?: bigint;
 };
 
 export interface SerializedOrderPacket {
