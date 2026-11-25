@@ -111,7 +111,6 @@ export default function HistoryView({
     [stocks],
   );
 
-  // Statistics
   const stats = useMemo(() => {
     let totalVolume = 0;
     let totalFees = 0;
@@ -120,7 +119,7 @@ export default function HistoryView({
       const qty = toNum(t.quantity);
       const val = price * qty;
       totalVolume += val;
-      totalFees += val * 0.001; // 0.1% fee
+      totalFees += val * 0.001;
     });
     return {
       totalOrders: orders.length,
@@ -130,7 +129,6 @@ export default function HistoryView({
     };
   }, [orders, trades]);
 
-  // Filtered Trades
   const filteredTrades = useMemo(() => {
     return trades
       .filter((t) => {
@@ -149,7 +147,6 @@ export default function HistoryView({
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [trades, symbolFilter, sideFilter, searchQuery]);
 
-  // Filtered Orders
   const filteredOrders = useMemo(() => {
     return orders
       .filter((o) => {
@@ -170,7 +167,6 @@ export default function HistoryView({
 
   return (
     <div className="flex flex-1 flex-col min-h-0 bg-[#0a0a0a] text-white p-4 md:p-6 overflow-hidden">
-      {/* Header & Stats bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 shrink-0">
         <div>
           <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2 tracking-tight">
@@ -191,7 +187,6 @@ export default function HistoryView({
         </button>
       </div>
 
-      {/* Summary KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 shrink-0">
         <div className="p-4 rounded-xl border border-white/5 bg-white/3 backdrop-blur-md">
           <div className="text-[11px] text-orbit-secondary uppercase tracking-wider font-medium">
@@ -230,11 +225,8 @@ export default function HistoryView({
         </div>
       </div>
 
-      {/* Main Content Box with Glass Border */}
       <div className="flex flex-1 flex-col min-h-0 rounded-2xl border border-white/5 bg-orbit-panel/80 backdrop-blur-md overflow-hidden">
-        {/* Navigation Tabs & Filters */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3 border-b border-white/5 bg-black/20 shrink-0">
-          {/* Main Sub-Tabs */}
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl">
             {(["trades", "orders", "funds"] as MainTab[]).map((tab) => (
               <button
@@ -251,9 +243,7 @@ export default function HistoryView({
             ))}
           </div>
 
-          {/* Filter Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Search */}
             <div className="relative">
               <Search size={14} className="absolute left-3 top-2.5 text-orbit-secondary" />
               <input
@@ -265,7 +255,6 @@ export default function HistoryView({
               />
             </div>
 
-            {/* Pair Selector */}
             <AssetDropdown
               symbol={symbolFilter}
               stocks={stocks}
@@ -274,7 +263,6 @@ export default function HistoryView({
               showAllOption
             />
 
-            {/* Side Selector */}
             <div className="flex items-center gap-1 border border-white/10 rounded-lg px-2 py-1.5 bg-black/40 text-xs">
               <select
                 value={sideFilter}
@@ -287,7 +275,6 @@ export default function HistoryView({
               </select>
             </div>
 
-            {/* Status Selector (For Orders) */}
             {activeTab === "orders" && (
               <div className="flex items-center gap-1 border border-white/10 rounded-lg px-2 py-1.5 bg-black/40 text-xs">
                 <select
@@ -306,7 +293,6 @@ export default function HistoryView({
           </div>
         </div>
 
-        {/* Scrollable Data Table Container */}
         <div className="flex-1 min-h-0 overflow-auto">
           {activeTab === "trades" && (
             <TradesHistoryTable trades={filteredTrades} />
