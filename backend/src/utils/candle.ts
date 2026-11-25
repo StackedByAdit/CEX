@@ -2,7 +2,6 @@ import { CANDLES, ORDERBOOK } from "../state";
 import { prisma } from "../prisma";
 import { publisher } from "../redis";
 
-// Only 1m candles are persisted; all other intervals are derived from 1m on read.
 const INTERVAL_1M_MS = 60_000;
 
 export type Interval = "1m" | "15m" | "1h" | "4h" | "1d";
@@ -96,7 +95,6 @@ function serializeDbCandle(candle: DbCandle): SerializedCandle {
     };
 }
 
-/** Aggregate sorted 1m rows into a coarser interval. */
 function aggregate1m(rows: SerializedCandle[], interval: Interval, symbol: string): SerializedCandle[] {
     const bucketMs = INTERVAL_MS[interval];
     const buckets = new Map<number, SerializedCandle>();
@@ -120,8 +118,6 @@ function aggregate1m(rows: SerializedCandle[], interval: Interval, symbol: strin
 export async function getCandleSnapshot(symbol: string, interval: Interval) {
     await advanceCandlesIfNeeded();
 
-    // How many 1m rows we need to produce ~200 candles of the target interval.
-    // Capped to keep queries fast; a young exchange won't have months of 1m data.
     const rowsPerCandle = Math.ceil(INTERVAL_MS[interval] / INTERVAL_1M_MS);
     const lookbackRows = Math.min(rowsPerCandle * 200, 25_000);
 
@@ -149,15 +145,12 @@ export async function getCandleSnapshot(symbol: string, interval: Interval) {
     const liveStart = getCandleStart(live1m.startTime, INTERVAL_MS[interval]);
 
     if (interval === "1m") {
-        // current is the live 1m candle
         const historical = historicalCandles.filter(c => c.startTime !== live1m.startTime);
         return { candles: historical, current: { ...live1m, interval } };
     }
 
-    // For derived intervals: find if the live 1m bucket overlaps the last historical candle
     const lastHistorical = historicalCandles.at(-1);
     if (lastHistorical && lastHistorical.startTime === liveStart) {
-        // Merge live 1m into the last derived candle
         const current: SerializedCandle = {
             symbol,
             interval,
@@ -172,7 +165,6 @@ export async function getCandleSnapshot(symbol: string, interval: Interval) {
         return { candles: historical, current };
     }
 
-    // Live 1m is in a new bucket not yet represented in history
     const current: SerializedCandle = {
         symbol,
         interval,

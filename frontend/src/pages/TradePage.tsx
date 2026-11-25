@@ -235,7 +235,6 @@ export default function TradePage() {
   );
 
   return (
-    // Full-height flex column — no overflow so inner panels scroll independently.
     <div
       style={{
         display: "flex",
@@ -262,7 +261,6 @@ export default function TradePage() {
         stocks={stocks}
       />
 
-      {/* Main area: sidebar + content */}
       <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         <Sidebar
           activeTab={activeTab}
@@ -271,7 +269,6 @@ export default function TradePage() {
           stocks={stocks}
         />
 
-        {/* Dynamic Main View: Spot Trading vs Wallet vs History */}
         {activeTab === "wallet" ? (
           <WalletView
             balances={balances}
@@ -317,7 +314,6 @@ export default function TradePage() {
               onSymbolChange={handleSymbolChange}
             />
 
-            {/* Main trading area: 3-column grid where right column is full-height */}
             <div
               style={{
                 display: "flex",
@@ -329,12 +325,10 @@ export default function TradePage() {
                 background: "#0a0a0a",
               }}
             >
-              {/* Left: order book — full height */}
               <div style={{ width: 260, flexShrink: 0, minHeight: 0, overflow: "hidden" }}>
                 <OrderBook asks={asks} bids={bids} lastPrice={lastPrice} />
               </div>
 
-              {/* Center: chart on top + orders panel below */}
               <div
                 style={{
                   flex: 1,
@@ -346,12 +340,10 @@ export default function TradePage() {
                   overflow: "hidden",
                 }}
               >
-                {/* Chart */}
                 <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
                   <KLineChart symbol={symbol} />
                 </div>
 
-                {/* Bottom: orders / trade history panel (strictly contained) */}
                 <div
                   style={{
                     height: 220,
@@ -386,7 +378,6 @@ export default function TradePage() {
                 </div>
               </div>
 
-              {/* Right: order form — full height, always visible */}
               <div style={{ width: 300, flexShrink: 0, minHeight: 0, overflow: "hidden" }}>
                 <OrderForm
                   symbol={symbol}

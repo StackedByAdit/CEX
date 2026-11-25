@@ -20,7 +20,6 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
   const inrLocked = balances["INR"]?.locked ?? 0;
   const inrTotal = inrAvailable + inrLocked;
 
-  // Combine balances with stock metadata
   const assetRows = useMemo(() => {
     const list = [
       {
@@ -75,7 +74,6 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
 
   return (
     <div className="flex flex-1 flex-col min-h-0 bg-[#0a0a0a] text-white p-4 md:p-6 overflow-hidden">
-      {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 shrink-0">
         <div>
           <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2 tracking-tight">
@@ -96,9 +94,7 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
         </button>
       </div>
 
-      {/* Main KPI Summary Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
-        {/* Net Worth Card */}
         <div className="p-5 rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-900/20 via-orbit-panel to-orbit-panel backdrop-blur-md relative overflow-hidden group">
           <div className="absolute right-3 top-3 p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
             <Sparkles size={20} />
@@ -121,7 +117,6 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
           </div>
         </div>
 
-        {/* Quick Deposit Card */}
         <div className="p-5 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-900/10 via-orbit-panel to-orbit-panel backdrop-blur-md relative">
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
@@ -145,7 +140,6 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
           </div>
         </div>
 
-        {/* Security / Status Card */}
         <div className="p-5 rounded-2xl border border-white/5 bg-orbit-panel/80 backdrop-blur-md flex flex-col justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
@@ -162,9 +156,7 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
         </div>
       </div>
 
-      {/* Main Glass Panel */}
       <div className="flex flex-1 flex-col min-h-0 rounded-2xl border border-white/5 bg-orbit-panel/80 backdrop-blur-md overflow-hidden">
-        {/* Navigation Sub-Tabs */}
         <div className="flex items-center justify-between p-3 border-b border-white/5 bg-black/20 shrink-0">
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl">
             <button
@@ -200,7 +192,6 @@ export default function WalletView({ balances, stocks, onRefresh }: WalletViewPr
           </div>
         </div>
 
-        {/* Container Content */}
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {activeSubTab === "overview" && (
             <div className="w-full h-full min-h-0 overflow-auto">

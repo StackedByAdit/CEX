@@ -29,11 +29,11 @@ const INTERVAL_MS: Record<PeriodInterval, number> = {
 
 function applyYAxisConfig(chart: Chart) {
   chart.overrideYAxis({
-    paneId: "candle_pane", // Target ONLY the main candle chart pane's Y-axis
-    scrollZoomEnabled: false, // Disable Y-axis zooming via scroll wheel/trackpad on the main chart
+    paneId: "candle_pane",
+    scrollZoomEnabled: false,
     gap: {
-      top: 0.15, // 15% top padding to prevent candles from touching the top edge
-      bottom: 0.15, // 15% bottom padding to prevent candles from touching the bottom edge
+      top: 0.15,
+      bottom: 0.15,
     },
     createRange: (params) => {
       const { defaultRange } = params;
@@ -41,9 +41,8 @@ function applyYAxisConfig(chart: Chart) {
       let to = defaultRange.realTo;
       const diff = to - from;
 
-      // Calculate a minimum span of 2% of the price to prevent extreme vertical stretching on flat periods
       const center = (from + to) / 2;
-      const minSpan = Math.max(0.0001, center * 0.02); // 2% of the average price
+      const minSpan = Math.max(0.0001, center * 0.02);
 
       if (diff < minSpan) {
         from = center - minSpan / 2;
@@ -92,7 +91,6 @@ export default function KLineChart({ symbol }: KLineChartProps) {
     liveBucketRef.current = null;
   }, [symbol]);
 
-  // Single init effect — chart creation, datafeed, symbol, and WS subscription all in one pass.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -252,10 +250,8 @@ export default function KLineChart({ symbol }: KLineChartProps) {
 
     chartRef.current = chart;
 
-    // Add volume indicator in a sub-pane below the candle pane.
     chart.createIndicator("VOL");
 
-    // Wire up the datafeed — getBars fetches from our backend HTTP API.
     const dataLoader: DataLoader = {
       getBars: async ({ symbol: sym, period, callback }) => {
         const matched = PERIODS.find((p) => p.type === period.type && p.span === period.span);
@@ -283,8 +279,6 @@ export default function KLineChart({ symbol }: KLineChartProps) {
 
     applyYAxisConfig(chart);
 
-    // Forward live 1m candle pushes from WS into the subscribeBar callback,
-    // aggregating consecutive updates within the active period bucket.
     const unsub = orbitWs.subscribe((msg: WsMessage) => {
       if (
         msg.type === "CANDLE_UPDATE" &&
@@ -319,7 +313,6 @@ export default function KLineChart({ symbol }: KLineChartProps) {
       }
     });
 
-    // Resize observer keeps canvas dimensions in sync with container.
     const observer = new ResizeObserver(() => {
       chart.resize();
     });
@@ -336,7 +329,6 @@ export default function KLineChart({ symbol }: KLineChartProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When symbol changes, update symbol on the existing chart instance.
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;

@@ -33,6 +33,7 @@ import { estimateMarketBuy, estimateMarketSell } from "./utils/marketOrder";
 import { restoreOpenOrders } from "./utils/orderSync";
 import { formatBalancesForPublish, publishBalance, publishOrderbook } from "./utils/publish";
 import { getTickerStats } from "./utils/ticker";
+import { lockAndQueueOrder } from "./utils/orderPlacement";
 import { runWorker } from "./worker";
 import { redisClient, resultClient } from "./redis";
 import { flushDbBuffer, queueBalanceUpdate, queueOrderUpsert } from "./utils/dbBuffer";
@@ -241,155 +242,34 @@ app.post("/order", authMiddleware, async (req: CustomRequest, res: Response) => 
         return res.status(400).json({ message: order.error.issues[0]?.message ?? "invalid order" });
     }
 
-    const { side, type, symbol, price, quantity } = order.data;
-    let orderQuantity: bigint;
     try {
-        orderQuantity = parseQuantity(quantity, symbol);
-    } catch {
-        return res.status(400).json({ message: "Invalid quantity" });
-    }
-    if (orderQuantity <= 0n) {
-        return res.status(400).json({ message: "Quantity must be greater than zero" });
-    }
+        const { orderId, orderQuantity, estimatedQuoteNum } = await lockAndQueueOrder(req.id!, order.data);
 
-    let orderPrice: bigint | undefined;
-    if (type === "LIMIT" && price !== undefined) {
-        try {
-            orderPrice = parsePrice(price);
-        } catch {
-            return res.status(400).json({ message: "Invalid price" });
+        const rawResult = await resultClient.brpop(`result:${orderId}`, 5);
+        if (!rawResult) {
+            return res.status(504).json({ message: "Order processing timeout" });
         }
-        if (orderPrice <= 0n) {
-            return res.status(400).json({ message: "Price must be greater than zero" });
+        const result = JSON.parse(rawResult[1]);
+
+        const filledQuantityBi = parseQuantity(result.filledQuantity, order.data.symbol);
+        const remainingBi = orderQuantity > filledQuantityBi ? orderQuantity - filledQuantityBi : 0n;
+
+        return res.status(200).json({
+            orderId,
+            status: result.status,
+            filledQuantity: result.filledQuantity,
+            remainingQuantity: formatQuantity(remainingBi, order.data.symbol),
+            fills: result.fills,
+            actualQuote: result.actualQuote,
+            refundQuote: result.refundQuote,
+            estimatedQuote: estimatedQuoteNum,
+        });
+    } catch (err: any) {
+        if (err.message === "Stock not found") {
+            return res.status(404).json({ message: "Stock not found" });
         }
+        return res.status(400).json({ message: err.message || "Invalid order" });
     }
-
-    const userId = req.id!;
-
-    const stock = STOCK_BY_SYMBOL[symbol]
-        ? { id: STOCK_BY_SYMBOL[symbol]!.id, symbol }
-        : await prisma.stock.findUnique({ where: { symbol } });
-
-    if (!stock) {
-        return res.status(404).json({ message: "Stock not found" });
-    }
-
-    if (!ORDERBOOK[symbol]) {
-        ORDERBOOK[symbol] = {
-            bids: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
-            asks: new BTree(undefined, (a, b) => (a < b ? -1 : a > b ? 1 : 0)),
-        };
-    }
-
-    const stockId = stock.id;
-
-    if (!BALANCES[userId]?.INR || !BALANCES[userId]?.[symbol]) {
-        await Promise.all([
-            assureBalance(userId, "INR"),
-            assureBalance(userId, symbol),
-        ]);
-    }
-
-    const inrBalance = BALANCES[userId]!.INR!;
-    const stockBalance = BALANCES[userId]![symbol]!;
-
-    let lockedQuoteAmount: bigint | undefined;
-
-    if (side == "BUY") {
-
-        if (type == "LIMIT") {
-
-            const amount = calculateQuote(orderQuantity, orderPrice!, symbol, "up");
-
-            if (inrBalance.available < amount) {
-                return res.status(400).json({ message: "INSUFFICIENT INR" });
-            }
-
-            inrBalance.available -= amount;
-            inrBalance.locked += amount;
-
-            lockedQuoteAmount = amount;
-
-            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked, "INR");
-        }
-
-        if (type === "MARKET") {
-            const estimate = estimateMarketBuy(symbol, orderQuantity);
-
-            if (estimate.fillableQuantity <= 0n) {
-                return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
-            }
-
-            lockedQuoteAmount = estimate.estimatedQuote;
-
-            if (inrBalance.available < lockedQuoteAmount) {
-                return res.status(400).json({ message: "INSUFFICIENT INR" });
-            }
-
-            inrBalance.available -= lockedQuoteAmount;
-            inrBalance.locked += lockedQuoteAmount;
-
-            queueBalanceUpdate(inrBalance.balanceId, inrBalance.available, inrBalance.locked, "INR");
-        }
-
-    } else {
-
-        if (stockBalance.available < orderQuantity) {
-            return res.status(400).json({ message: `INSUFFICIENT ${symbol}` });
-        }
-
-        if (type === "MARKET") {
-            const estimate = estimateMarketSell(symbol, orderQuantity);
-            if (estimate.fillableQuantity <= 0n) {
-                return res.status(400).json({ message: "INSUFFICIENT LIQUIDITY" });
-            }
-        }
-
-        stockBalance.available -= orderQuantity;
-        stockBalance.locked += orderQuantity;
-
-        queueBalanceUpdate(stockBalance.balanceId, stockBalance.available, stockBalance.locked, symbol);
-    }
-
-    const orderId = crypto.randomUUID();
-
-    const currOrder: MemoryOrder = {
-        id: orderId,
-        userId,
-        side,
-        symbol,
-        type,
-        status: "PENDING",
-        price: orderPrice,
-        quantity: orderQuantity,
-        filledQuantity: 0n,
-        lockedQuoteAmount,
-    };
-
-    await redisClient.lpush("queue:orders", serializeOrderForQueue(currOrder, stockId));
-    const rawResult = await resultClient.brpop(`result:${orderId}`, 5);
-    if (!rawResult) {
-        return res.status(504).json({ message: "Order processing timeout" });
-    }
-    const result = JSON.parse(rawResult[1]);
-
-    const estimatedQuoteNum = lockedQuoteAmount !== undefined
-        ? formatInr(lockedQuoteAmount)
-        : (type === "LIMIT" && side === "BUY" ? formatInr(calculateQuote(orderQuantity, orderPrice!, symbol, "up")) : undefined);
-
-    const filledQuantityBi = parseQuantity(result.filledQuantity, symbol);
-    const remainingBi = orderQuantity > filledQuantityBi ? orderQuantity - filledQuantityBi : 0n;
-
-    return res.status(200).json({
-        orderId,
-        status: result.status,
-        filledQuantity: result.filledQuantity,
-        remainingQuantity: formatQuantity(remainingBi, symbol),
-        fills: result.fills,
-        actualQuote: result.actualQuote,
-        refundQuote: result.refundQuote,
-        estimatedQuote: estimatedQuoteNum,
-    });
 });
 
 app.delete("/order/:orderId", authMiddleware, async (req: CustomRequest, res: Response) => {

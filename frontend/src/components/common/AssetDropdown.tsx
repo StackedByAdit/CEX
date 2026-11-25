@@ -35,7 +35,6 @@ export default function AssetDropdown({
 
   return (
     <div ref={containerRef} className="relative inline-block text-left select-none">
-      {/* Trigger Button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -50,7 +49,6 @@ export default function AssetDropdown({
         }`}
       >
         <div className="flex items-center gap-2.5">
-          {/* Symbol Badge Avatar */}
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/30 to-purple-600/30 border border-white/15 flex items-center justify-center font-bold text-xs text-indigo-200 shadow-inner group-hover:scale-105 transition-transform">
             {displayTitle[0]}
           </div>
@@ -78,7 +76,6 @@ export default function AssetDropdown({
         />
       </button>
 
-      {/* Glassmorphic Dropdown Popover */}
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 z-[100] w-56 rounded-2xl border border-white/15 bg-[#121212]/95 backdrop-blur-3xl shadow-[0_16px_50px_rgba(0,0,0,0.9),0_0_25px_rgba(99,102,241,0.25)] p-1.5 overflow-hidden">
           <div className="px-3 py-1.5 border-b border-white/5 mb-1 flex items-center justify-between text-[10px] uppercase font-bold text-orbit-muted tracking-wider">

@@ -4,7 +4,7 @@ import pg from "pg";
 
 const pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL!,
-    max: 50, // Allow up to 50 concurrent connections
+    max: 50,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 15000,
 });

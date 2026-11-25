@@ -50,7 +50,6 @@ describe("Precision & Scaling Conversion Suite", () => {
     test("ETH parses to wei (18 decimals) beyond Number.MAX_SAFE_INTEGER", () => {
         const oneEth = parseUnits("1.0", 18);
         expect(oneEth).toBe(1_000_000_000_000_000_000n);
-        // Exceeds 2^53 - 1 (9,007,199,254,740,991)
         expect(oneEth > BigInt(Number.MAX_SAFE_INTEGER)).toBe(true);
         expect(formatUnits(oneEth, 18)).toBe("1.000000000000000000");
     });
@@ -69,7 +68,6 @@ describe("Precision & Scaling Conversion Suite", () => {
 
 describe("Quote & Fee Calculations with Explicit Rounding", () => {
     test("calculates exact quote for whole numbers", () => {
-        // 2 SOL @ 100 INR = 200 INR (20000 paise)
         const qty = parseQuantity(2, "SOL");
         const price = parsePrice(100);
         const quote = calculateQuote(qty, price, "SOL");
@@ -78,21 +76,15 @@ describe("Quote & Fee Calculations with Explicit Rounding", () => {
     });
 
     test("calculates quote for partial fill without floating point drift", () => {
-        // 0.0001 SOL @ 101.17 INR:
-        // Raw: 0.0001 * 101.17 = 0.010117 INR = 1.0117 paise
-        const qty = parseQuantity("0.0001", "SOL"); // 100,000 lamports
-        const price = parsePrice("101.17");         // 10,117 paise
+        const qty = parseQuantity("0.0001", "SOL");
+        const price = parsePrice("101.17");
 
-        // half_up: 1.0117 paise -> 1 paisa (1n)
         expect(calculateQuote(qty, price, "SOL", "half_up")).toBe(1n);
-        // up (ceil): 1.0117 paise -> 2 paise (2n)
         expect(calculateQuote(qty, price, "SOL", "up")).toBe(2n);
-        // down (floor): 1.0117 paise -> 1 paisa (1n)
         expect(calculateQuote(qty, price, "SOL", "down")).toBe(1n);
     });
 
     test("calculates basis point fees accurately", () => {
-        // 10,000 INR = 1,000,000 paise. 25 bps (0.25%) = 2500 paise = 25 INR
         const quote = parseInr(10000);
         const fee = calculateFee(quote, 25n);
         expect(fee).toBe(2500n);
@@ -121,7 +113,7 @@ describe("Accounting Invariant & Conservation Laws", () => {
         };
         ORDERBOOK.SOL.asks.set(price, [restingSell]);
 
-        const buyerInitialInr = parseInr(500); // 500 INR
+        const buyerInitialInr = parseInr(500);
         const sellerInitialSol = sellQty;
 
         BALANCES.buyer = {
@@ -150,22 +142,14 @@ describe("Accounting Invariant & Conservation Laws", () => {
         expect(result.status).toBe("FILLED");
         expect(result.filledQuantity).toBe(buyQty);
 
-        // Conservation of Quote (INR):
-        // Total INR in system before = 500 INR
-        // Total INR in system after:
         const buyerTotalInr = BALANCES.buyer!.INR!.available + BALANCES.buyer!.INR!.locked;
         const sellerTotalInr = BALANCES.seller!.INR!.available + BALANCES.seller!.INR!.locked;
         expect(buyerTotalInr + sellerTotalInr).toBe(buyerInitialInr);
 
-        // Conservation of Base Asset (SOL):
-        // Total SOL in system before = 5 SOL
-        // Total SOL in system after:
         const buyerTotalSol = BALANCES.buyer!.SOL!.available + BALANCES.buyer!.SOL!.locked;
         const sellerTotalSol = BALANCES.seller!.SOL!.available + BALANCES.seller!.SOL!.locked;
         expect(buyerTotalSol + sellerTotalSol).toBe(sellerInitialSol);
 
-        // Exact settlement check:
-        // 3 SOL @ 105 INR = 315 INR (31,500 paise)
         const expectedQuote = parseInr(3 * 105);
         expect(result.actualQuote).toBe(expectedQuote);
         expect(BALANCES.seller!.INR!.available).toBe(expectedQuote);
@@ -177,9 +161,9 @@ describe("Accounting Invariant & Conservation Laws", () => {
         ORDERBOOK.SOL = { asks: createTree(), bids: createTree() };
 
         const price = parsePrice("101.17");
-        const singleFillQty = parseQuantity("0.01", "SOL"); // 10,000,000 lamports
+        const singleFillQty = parseQuantity("0.01", "SOL");
         const totalFills = 100;
-        const totalSellQty = singleFillQty * BigInt(totalFills); // 1.0 SOL
+        const totalSellQty = singleFillQty * BigInt(totalFills);
 
         const restingSell: MemoryOrder = {
             id: "seller-large",
@@ -222,7 +206,6 @@ describe("Accounting Invariant & Conservation Laws", () => {
             expect(matchRes.status).toBe("FILLED");
         }
 
-        // Verify seller received exact totalQuote without 1 paisa discrepancy
         expect(BALANCES.seller!.INR!.available).toBe(totalExpectedQuote);
         expect(BALANCES.buyer!.INR!.locked).toBe(0n);
         expect(BALANCES.buyer!.SOL!.available).toBe(totalSellQty);
