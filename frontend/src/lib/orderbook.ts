@@ -1,15 +1,20 @@
 import type { OrderbookLevel } from "../types";
 
-type RawSide = Record<string, { quantity: number; filledQuantity: number }[]>;
+type RawSide = Record<string, { quantity: number; filledQuantity: number }[] | number>;
 
 function aggregateSide(side: RawSide): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [price, orders] of Object.entries(side)) {
-    let total = 0;
-    for (const order of orders) {
-      total += order.quantity - order.filledQuantity;
+  if (!side) return out;
+  for (const [price, val] of Object.entries(side)) {
+    if (typeof val === "number") {
+      if (val > 0) out[price] = val;
+    } else if (Array.isArray(val)) {
+      let total = 0;
+      for (const order of val) {
+        total += (order.quantity || 0) - (order.filledQuantity || 0);
+      }
+      if (total > 0) out[price] = total;
     }
-    if (total > 0) out[price] = total;
   }
   return out;
 }

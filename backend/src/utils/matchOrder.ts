@@ -1,25 +1,45 @@
 import { ORDERBOOK } from "../state";
 import type { MemoryOrder } from "../types/order";
 import { getBalance } from "./assureBalance";
-import { roundInr, roundQty } from "./marketOrder";
-import { prisma } from "../prisma";
+import { calculateQuote, formatPrice, formatQuantity, formatInr } from "./precision";
 
 export interface MatchFillRecord {
     buyOrderId: string;
     sellOrderId: string;
-    price: number;
-    quantity: number;
+    price: bigint;
+    quantity: bigint;
 }
 
 export interface MatchResult {
     status: MemoryOrder["status"];
-    filledQuantity: number;
-    fills: { price: number; quantity: number }[];
+    filledQuantity: bigint;
+    fills: { price: bigint; quantity: bigint }[];
     fillRecords: MatchFillRecord[];
     counterPartyOrders: MemoryOrder[];
     counterPartyUserIds: string[];
+    actualQuote: bigint; // in INR paise
+    refundQuote: bigint; // in INR paise
+}
+
+export interface JsonMatchResult {
+    status: MemoryOrder["status"];
+    filledQuantity: number;
+    fills: { price: number; quantity: number }[];
     actualQuote: number;
     refundQuote: number;
+}
+
+export function serializeMatchResultToJson(result: MatchResult, symbol: string): JsonMatchResult {
+    return {
+        status: result.status,
+        filledQuantity: formatQuantity(result.filledQuantity, symbol),
+        fills: result.fills.map(f => ({
+            price: formatPrice(f.price),
+            quantity: formatQuantity(f.quantity, symbol),
+        })),
+        actualQuote: formatInr(result.actualQuote),
+        refundQuote: formatInr(result.refundQuote),
+    };
 }
 
 function trackCounterParty(
@@ -44,12 +64,12 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
             fillRecords: [],
             counterPartyOrders: [],
             counterPartyUserIds: [],
-            actualQuote: 0,
-            refundQuote: 0,
+            actualQuote: 0n,
+            refundQuote: 0n,
         };
     }
 
-    const fills: { price: number; quantity: number }[] = [];
+    const fills: { price: bigint; quantity: bigint }[] = [];
 
     if (order.side === "BUY") {
 
@@ -61,21 +81,22 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
             while (ordersAtPrice.length > 0 && order.filledQuantity < order.quantity) {
 
                 const sellOrder = ordersAtPrice[0]!;
-                const tradeQty = Math.min(
-                    order.quantity - order.filledQuantity,
-                    sellOrder.quantity - sellOrder.filledQuantity
-                );
+                const remainingBuy = order.quantity - order.filledQuantity;
+                const remainingSell = sellOrder.quantity - sellOrder.filledQuantity;
+                const tradeQty = remainingBuy < remainingSell ? remainingBuy : remainingSell;
+
                 trackCounterParty(counterPartyOrders, counterPartyUserIds, sellOrder);
 
-                order.filledQuantity = roundQty(order.filledQuantity + tradeQty);
-                sellOrder.filledQuantity = roundQty(sellOrder.filledQuantity + tradeQty);
+                order.filledQuantity += tradeQty;
+                sellOrder.filledQuantity += tradeQty;
 
-                const tradeQuote = roundInr(tradeQty * price);
+                const tradeQuote = calculateQuote(tradeQty, price, order.symbol, "half_up");
                 const sellerStock = getBalance(sellOrder.userId, order.symbol);
                 const sellerInr = getBalance(sellOrder.userId, "INR");
                 const buyerStock = getBalance(order.userId, order.symbol);
                 const buyerInr = getBalance(order.userId, "INR");
 
+                // Debit/Credit settlement in atomic units
                 buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
@@ -92,6 +113,8 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 if (sellOrder.filledQuantity === sellOrder.quantity) {
                     sellOrder.status = "FILLED";
                     ordersAtPrice.shift();
+                } else if (sellOrder.filledQuantity > 0n) {
+                    sellOrder.status = "PARTIALLY_FILLED";
                 }
 
                 if (order.filledQuantity === order.quantity) break;
@@ -111,22 +134,22 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
             while (ordersAtPrice.length > 0 && order.filledQuantity < order.quantity) {
 
                 const buyOrder = ordersAtPrice[0]!;
-                const tradeQty = Math.min(
-                    order.quantity - order.filledQuantity,
-                    buyOrder.quantity - buyOrder.filledQuantity
-                );
+                const remainingSell = order.quantity - order.filledQuantity;
+                const remainingBuy = buyOrder.quantity - buyOrder.filledQuantity;
+                const tradeQty = remainingSell < remainingBuy ? remainingSell : remainingBuy;
 
                 trackCounterParty(counterPartyOrders, counterPartyUserIds, buyOrder);
 
-                order.filledQuantity = roundQty(order.filledQuantity + tradeQty);
-                buyOrder.filledQuantity = roundQty(buyOrder.filledQuantity + tradeQty);
+                order.filledQuantity += tradeQty;
+                buyOrder.filledQuantity += tradeQty;
 
-                const tradeQuote = roundInr(tradeQty * price);
+                const tradeQuote = calculateQuote(tradeQty, price, order.symbol, "half_up");
                 const buyerStock = getBalance(buyOrder.userId, order.symbol);
                 const buyerInr = getBalance(buyOrder.userId, "INR");
                 const sellerStock = getBalance(order.userId, order.symbol);
                 const sellerInr = getBalance(order.userId, "INR");
 
+                // Debit/Credit settlement in atomic units
                 buyerInr.locked -= tradeQuote;
                 buyerStock.available += tradeQty;
                 sellerStock.locked -= tradeQty;
@@ -143,6 +166,24 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
                 if (buyOrder.filledQuantity === buyOrder.quantity) {
                     buyOrder.status = "FILLED";
                     ordersAtPrice.shift();
+
+                    if (buyOrder.lockedQuoteAmount !== undefined) {
+                        const makerSurplus = buyOrder.lockedQuoteAmount > tradeQuote
+                            ? buyOrder.lockedQuoteAmount - tradeQuote
+                            : 0n;
+                        if (makerSurplus > 0n) {
+                            buyerInr.locked -= makerSurplus;
+                            buyerInr.available += makerSurplus;
+                        }
+                        buyOrder.lockedQuoteAmount = undefined;
+                    }
+                } else if (buyOrder.filledQuantity > 0n) {
+                    buyOrder.status = "PARTIALLY_FILLED";
+                    if (buyOrder.lockedQuoteAmount !== undefined) {
+                        buyOrder.lockedQuoteAmount = buyOrder.lockedQuoteAmount > tradeQuote
+                            ? buyOrder.lockedQuoteAmount - tradeQuote
+                            : 0n;
+                    }
                 }
 
                 if (order.filledQuantity === order.quantity) break;
@@ -153,6 +194,7 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
         }
     }
 
+    // If limit order has unfilled quantity, place remaining on resting book
     if (order.filledQuantity < order.quantity && order.type === "LIMIT") {
         const bookSide = order.side === "BUY" ? firm.bids : firm.asks;
         let ordersAtPrice = bookSide.get(order.price!);
@@ -163,24 +205,45 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
         ordersAtPrice.push(order);
     }
 
-    const actualQuote = fills.reduce((sum, fill) => sum + roundInr(fill.price * fill.quantity), 0);
-    let refundQuote = 0;
+    const actualQuote = fills.reduce(
+        (sum, fill) => sum + calculateQuote(fill.quantity, fill.price, order.symbol, "half_up"),
+        0n
+    );
+    let refundQuote = 0n;
 
-    if (order.type === "MARKET") {
-        if (order.side === "BUY") {
-            const locked = order.lockedQuoteAmount ?? 0;
-            refundQuote = roundInr(Math.max(0, locked - actualQuote));
+    if (order.side === "BUY") {
+        const locked = order.lockedQuoteAmount ?? 0n;
+        if (order.type === "MARKET") {
+            refundQuote = locked > actualQuote ? locked - actualQuote : 0n;
 
-            if (refundQuote > 0) {
+            if (refundQuote > 0n) {
                 const buyerInr = getBalance(order.userId, "INR");
                 buyerInr.locked -= refundQuote;
                 buyerInr.available += refundQuote;
             }
 
             order.lockedQuoteAmount = undefined;
-        } else {
-            const unfilledQty = roundQty(order.quantity - order.filledQuantity);
-            if (unfilledQty > 0) {
+        } else if (order.type === "LIMIT") {
+            const unfilledQty = order.quantity - order.filledQuantity;
+            const remainingLockedNeeded = unfilledQty > 0n && order.price !== undefined
+                ? calculateQuote(unfilledQty, order.price, order.symbol, "up")
+                : 0n;
+
+            if (locked > 0n) {
+                const totalUtilized = actualQuote + remainingLockedNeeded;
+                refundQuote = locked > totalUtilized ? locked - totalUtilized : 0n;
+                if (refundQuote > 0n) {
+                    const buyerInr = getBalance(order.userId, "INR");
+                    buyerInr.locked -= refundQuote;
+                    buyerInr.available += refundQuote;
+                }
+                order.lockedQuoteAmount = remainingLockedNeeded > 0n ? remainingLockedNeeded : undefined;
+            }
+        }
+    } else {
+        if (order.type === "MARKET") {
+            const unfilledQty = order.quantity - order.filledQuantity;
+            if (unfilledQty > 0n) {
                 const sellerStock = getBalance(order.userId, order.symbol);
                 sellerStock.locked -= unfilledQty;
                 sellerStock.available += unfilledQty;
@@ -189,14 +252,10 @@ export function matchOrder(order: MemoryOrder, _stockId: string): MatchResult {
     }
 
     if (order.type === "MARKET") {
-        if (order.filledQuantity > 0) {
-            order.status = "FILLED";
-        } else {
-            order.status = "CANCELLED";
-        }
+        order.status = order.filledQuantity > 0n ? "FILLED" : "CANCELLED";
     } else if (order.filledQuantity === order.quantity) {
         order.status = "FILLED";
-    } else if (order.filledQuantity > 0) {
+    } else if (order.filledQuantity > 0n) {
         order.status = "PARTIALLY_FILLED";
     } else {
         order.status = "PENDING";

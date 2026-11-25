@@ -1,11 +1,11 @@
 import { redisClient, publisher, workerClient } from "./redis";
-import { matchOrder, type MatchResult } from "./utils/matchOrder";
+import { matchOrder, serializeMatchResultToJson, type MatchResult } from "./utils/matchOrder";
 import { ORDERS, BALANCES } from "./state";
-import { prisma } from "./prisma";
-import type { MemoryOrder } from "./types/order";
-import { processTrade, processTradesBatch } from "./utils/candle";
+import { deserializeOrderFromQueue, type MemoryOrder } from "./types/order";
+import { processTradesBatch } from "./utils/candle";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { queueOrderUpsert, queueFillsInsert, queueBalanceUpdate } from "./utils/dbBuffer";
+import { formatPrice, formatQuantity } from "./utils/precision";
 
 function persistMatchResult(order: MemoryOrder, stockId: string, result: MatchResult) {
     for (const counterParty of result.counterPartyOrders) {
@@ -17,6 +17,7 @@ function persistMatchResult(order: MemoryOrder, stockId: string, result: MatchRe
     if (result.fillRecords.length > 0) {
         queueFillsInsert(result.fillRecords.map(fill => ({
             stockId,
+            symbol: order.symbol,
             buyOrderId: fill.buyOrderId,
             sellOrderId: fill.sellOrderId,
             price: fill.price,
@@ -30,12 +31,12 @@ function persistMatchResult(order: MemoryOrder, stockId: string, result: MatchRe
         if (!userBalances) continue;
 
         if (userBalances.INR) {
-            queueBalanceUpdate(userBalances.INR.balanceId, userBalances.INR.available, userBalances.INR.locked);
+            queueBalanceUpdate(userBalances.INR.balanceId, userBalances.INR.available, userBalances.INR.locked, "INR");
         }
 
         const symbol = order.symbol;
         if (userBalances[symbol]) {
-            queueBalanceUpdate(userBalances[symbol].balanceId, userBalances[symbol].available, userBalances[symbol].locked);
+            queueBalanceUpdate(userBalances[symbol].balanceId, userBalances[symbol].available, userBalances[symbol].locked, symbol);
         }
     }
 }
@@ -46,14 +47,18 @@ function publishMatchEvents(order: MemoryOrder, stockId: string, result: MatchRe
     for (const fill of result.fills) {
         void publisher.publish(`trades:${order.symbol}`, JSON.stringify({
             symbol: order.symbol,
-            price: fill.price,
-            quantity: fill.quantity,
+            price: formatPrice(fill.price),
+            quantity: formatQuantity(fill.quantity, order.symbol),
             timestamp: Date.now(),
         })).catch(err => console.error("Trade publish error:", err));
     }
 
     if (result.fills.length > 0) {
-        void processTradesBatch(order.symbol, result.fills, Date.now()).catch(err => {
+        const numericFills = result.fills.map(f => ({
+            price: formatPrice(f.price),
+            quantity: formatQuantity(f.quantity, order.symbol),
+        }));
+        void processTradesBatch(order.symbol, numericFills, Date.now()).catch(err => {
             console.error("Candle batch processing error:", err);
         });
     }
@@ -71,7 +76,7 @@ function publishMatchEvents(order: MemoryOrder, stockId: string, result: MatchRe
 export async function executeOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
     ORDERS.push(order);
     const result = matchOrder(order, stockId);
-    
+
     // Run DB sync via queueing
     persistMatchResult(order, stockId, result);
 
@@ -81,7 +86,8 @@ export async function executeOrder(order: MemoryOrder, stockId: string): Promise
 
 async function processOrder(order: MemoryOrder, stockId: string) {
     const result = await executeOrder(order, stockId);
-    await redisClient.lpush(`result:${order.id}`, JSON.stringify(result));
+    const jsonResult = serializeMatchResultToJson(result, order.symbol);
+    await redisClient.lpush(`result:${order.id}`, JSON.stringify(jsonResult));
     await redisClient.expire(`result:${order.id}`, 10);
     console.log("Result pushed for:", order.id);
 }
@@ -92,7 +98,7 @@ export async function runWorker() {
         const res = await workerClient.brpop("queue:orders", 0);
         if (!res) continue;
         console.log("Worker picked up order:", res[1]);
-        const { stockId, ...order }: MemoryOrder & { stockId: string } = JSON.parse(res[1]);
+        const { order, stockId } = deserializeOrderFromQueue(res[1]);
         await processOrder(order, stockId);
         console.log("Worker finished order:", order.id);
     }

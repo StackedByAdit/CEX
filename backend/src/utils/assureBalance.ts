@@ -1,8 +1,9 @@
 import { prisma } from "../prisma";
-import { BALANCES, STOCK_BY_SYMBOL } from "../state";
+import { BALANCES, STOCK_BY_SYMBOL, type BalanceRecord } from "../state";
+import { getAssetScale, parseUnits } from "./precision";
 
 /** Hot-path balance access — throws if not already in memory (bootstrap / prior orders). */
-export function getBalance(userId: string, symbol: string) {
+export function getBalance(userId: string, symbol: string): BalanceRecord {
     const balance = BALANCES[userId]?.[symbol];
     if (!balance) {
         throw new Error(`Balance cache miss: ${userId}/${symbol}`);
@@ -10,12 +11,14 @@ export function getBalance(userId: string, symbol: string) {
     return balance;
 }
 
-export async function assureBalance(userId: string, symbol: string) {
+export async function assureBalance(userId: string, symbol: string): Promise<BalanceRecord> {
     if (!BALANCES[userId]) BALANCES[userId] = {};
 
     if (BALANCES[userId]![symbol]) {
         return BALANCES[userId]![symbol]!;
     }
+
+    const scale = getAssetScale(symbol);
 
     if (symbol === "INR") {
         let balance = await prisma.balance.findFirst({
@@ -40,8 +43,8 @@ export async function assureBalance(userId: string, symbol: string) {
 
         if (!BALANCES[userId]![symbol]) {
             BALANCES[userId]![symbol] = {
-                available: balance.available.toNumber(),
-                locked: balance.locked.toNumber(),
+                available: parseUnits(balance.available.toString(), scale.decimals),
+                locked: parseUnits(balance.locked.toString(), scale.decimals),
                 balanceId: balance.id
             };
         }
@@ -74,8 +77,8 @@ export async function assureBalance(userId: string, symbol: string) {
 
     if (!BALANCES[userId]![symbol]) {
         BALANCES[userId]![symbol] = {
-            available: balance.available.toNumber(),
-            locked: balance.locked.toNumber(),
+            available: parseUnits(balance.available.toString(), scale.decimals),
+            locked: parseUnits(balance.locked.toString(), scale.decimals),
             balanceId: balance.id
         };
     }

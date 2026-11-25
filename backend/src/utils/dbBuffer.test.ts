@@ -2,6 +2,7 @@ import { describe, expect, test, mock } from "bun:test";
 import { queueOrderUpsert, queueFillsInsert, queueBalanceUpdate, flushDbBuffer } from "./dbBuffer";
 import { prisma } from "../prisma";
 import type { MemoryOrder } from "../types/order";
+import { parsePrice, parseQuantity } from "./precision";
 
 describe("dbBuffer error recovery", () => {
     test("re-queues orders, fills, and balances when transaction fails", async () => {
@@ -11,15 +12,22 @@ describe("dbBuffer error recovery", () => {
             side: "BUY",
             symbol: "SOL",
             type: "LIMIT",
-            price: 100,
-            quantity: 5,
-            filledQuantity: 0,
+            price: parsePrice(100),
+            quantity: parseQuantity(5, "SOL"),
+            filledQuantity: 0n,
             status: "PENDING",
         };
 
         queueOrderUpsert(order, "stock-1");
-        queueFillsInsert([{ stockId: "stock-1", buyOrderId: "retry-ord-1", sellOrderId: "sell-1", price: 100, quantity: 2 }]);
-        queueBalanceUpdate("bal-1", 500, 100);
+        queueFillsInsert([{
+            stockId: "stock-1",
+            symbol: "SOL",
+            buyOrderId: "retry-ord-1",
+            sellOrderId: "sell-1",
+            price: parsePrice(100),
+            quantity: parseQuantity(2, "SOL"),
+        }]);
+        queueBalanceUpdate("bal-1", 500n, 100n, "INR");
 
         // Mock prisma.$transaction to throw error on first call
         const originalTransaction = prisma.$transaction;
@@ -48,7 +56,6 @@ describe("dbBuffer error recovery", () => {
     test("concurrent callers await activeFlushPromise completion", async () => {
         const originalTransaction = prisma.$transaction;
         let inFlight = false;
-        let maxConcurrentCalls = 0;
 
         prisma.$transaction = mock(async () => {
             inFlight = true;
@@ -58,7 +65,7 @@ describe("dbBuffer error recovery", () => {
         }) as typeof prisma.$transaction;
 
         try {
-            queueBalanceUpdate("bal-concurrent", 100, 0);
+            queueBalanceUpdate("bal-concurrent", 100n, 0n, "INR");
 
             // Invoke flushDbBuffer concurrently
             const p1 = flushDbBuffer();
