@@ -6,6 +6,7 @@ import type { Interval } from "./utils/candle";
 import jwt from "jsonwebtoken";
 import { prisma } from "./prisma";
 import { getSessionTokenFromRequest } from "./utils/sessionCookie";
+import { formatBalancesForPublish, formatOrderbookForPublish } from "./utils/publish";
 
 type AliveWebSocket = WebSocket & { isAlive?: boolean };
 
@@ -59,13 +60,13 @@ export function initWS(port: number) {
                     }
                     orderbookSubs.get(symbol)!.add(ws);
 
-                    const firm = ORDERBOOK[symbol];
-                    if (firm) {
+                    const snapshot = formatOrderbookForPublish(symbol);
+                    if (snapshot) {
                         ws.send(JSON.stringify({
                             type: "ORDERBOOK_SNAPSHOT",
                             symbol,
-                            bids: Object.fromEntries(firm.bids.entries()),
-                            asks: Object.fromEntries(firm.asks.entries()),
+                            bids: snapshot.bids,
+                            asks: snapshot.asks,
                         }));
                     }
                 }
@@ -80,9 +81,10 @@ export function initWS(port: number) {
                         ws.send(JSON.stringify({ type: "ERROR", message: "Unauthorized" }));
                         return;
                     }
+                    const formatted = formatBalancesForPublish(userId);
                     ws.send(JSON.stringify({
                         type: "BALANCE_SNAPSHOT",
-                        balances: BALANCES[userId] ?? {}
+                        balances: formatted?.balances ?? {}
                     }));
                 }
 
