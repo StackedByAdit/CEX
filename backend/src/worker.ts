@@ -5,7 +5,7 @@ import { deserializeOrderFromQueue, type MemoryOrder } from "./types/order";
 import { processTradesBatch } from "./utils/candle";
 import { publishBalance, publishOrderbook } from "./utils/publish";
 import { queueOrderUpsert, queueFillsInsert, queueBalanceUpdate } from "./utils/dbBuffer";
-import { formatPrice, formatQuantity } from "./utils/precision";
+import { formatInr, formatPrice, formatQuantity } from "./utils/precision";
 
 function persistMatchResult(order: MemoryOrder, stockId: string, result: MatchResult) {
     for (const counterParty of result.counterPartyOrders) {
@@ -70,16 +70,28 @@ function publishMatchEvents(order: MemoryOrder, stockId: string, result: MatchRe
             publishBalance(userId);
         }
     }
+
+    void publisher.publish("order:execution", JSON.stringify({
+        userId: order.userId,
+        orderId: order.id,
+        symbol: order.symbol,
+        side: order.side,
+        status: result.status,
+        filledQuantity: formatQuantity(result.filledQuantity, order.symbol),
+        fills: result.fills.map(f => ({
+            price: formatPrice(f.price),
+            quantity: formatQuantity(f.quantity, order.symbol),
+        })),
+        actualQuote: formatInr(result.actualQuote),
+        refundQuote: formatInr(result.refundQuote),
+    })).catch(err => console.error("Order execution publish error:", err));
 }
 
-/** Match in-process, persist to DB, then fan out WS events. */
 export async function executeOrder(order: MemoryOrder, stockId: string): Promise<MatchResult> {
     ORDERS.push(order);
     const result = matchOrder(order, stockId);
 
-    // Run DB sync via queueing
     persistMatchResult(order, stockId, result);
-
     publishMatchEvents(order, stockId, result);
     return result;
 }
