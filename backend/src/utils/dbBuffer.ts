@@ -19,7 +19,6 @@ export interface DbFillRecord {
     quantity: bigint;
 }
 
-// In-memory queues
 const orderBuffer = new Map<string, { order: MemoryOrder; stockId: string }>();
 let fillBuffer: DbFillRecord[] = [];
 const balanceBuffer = new Map<string, BalanceUpdate>();
@@ -56,7 +55,7 @@ function startFlushTimerIfNeeded() {
         flushTimer = setTimeout(() => {
             flushTimer = null;
             void flushDbBuffer();
-        }, 500); // Flush every 500ms
+        }, 500);
     }
 }
 
@@ -86,7 +85,6 @@ export async function flushDbBuffer(): Promise<void> {
     activeFlushPromise = (async () => {
         try {
             await prisma.$transaction(async (tx) => {
-                // 1. Bulk Upsert Orders
                 for (const item of ordersToSync) {
                     const { order, stockId } = item;
                     const scale = getAssetScale(order.symbol);
@@ -112,7 +110,6 @@ export async function flushDbBuffer(): Promise<void> {
                     });
                 }
 
-                // 2. Bulk Insert Fills
                 if (fillsToSync.length > 0) {
                     await tx.fill.createMany({
                         data: fillsToSync.map(f => ({
@@ -125,7 +122,6 @@ export async function flushDbBuffer(): Promise<void> {
                     });
                 }
 
-                // 3. Bulk Update Balances
                 for (const bal of balancesToSync) {
                     if (!bal.balanceId) continue;
                     const scale = getAssetScale(bal.symbol);
@@ -140,7 +136,6 @@ export async function flushDbBuffer(): Promise<void> {
             });
         } catch (err) {
             console.error("Failed to flush DB persistence buffer:", err);
-            // Re-queue snapshotted work so it isn't lost; existing buffer entries win (newer state).
             for (const item of ordersToSync) {
                 if (!orderBuffer.has(item.order.id)) orderBuffer.set(item.order.id, item);
             }
