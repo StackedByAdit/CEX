@@ -107,11 +107,13 @@ async function processOrder(order: MemoryOrder, stockId: string) {
 export async function runWorker() {
     console.log("Worker running...");
     while (true) {
-        const res = await workerClient.brpop("queue:orders", 0);
-        if (!res) continue;
-        console.log("Worker picked up order:", res[1]);
-        const { order, stockId } = deserializeOrderFromQueue(res[1]);
-        await processOrder(order, stockId);
-        console.log("Worker finished order:", order.id);
+        try {
+            const res = await workerClient.brpop("queue:orders", 0);
+            if (!res) continue;
+            const { order, stockId } = deserializeOrderFromQueue(res[1]);
+            await processOrder(order, stockId);
+        } catch (err) {
+            console.error("Worker processing error:", err);
+        }
     }
 }
