@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cex_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cex_secret_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-cex_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - cex_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cex_user} -d ${POSTGRES_DB:-cex_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cex_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: cex-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - cex_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cex_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cex-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cex_user}:${POSTGRES_PASSWORD:-cex_secret_pass}@postgres:5432/${POSTGRES_DB:-cex_db}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-cex_jwt_super_secret_key_2026}
+      PORT: 3000
+      WS_PORT: 8080
+      HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+      - "8080:8080"
+    networks:
+      - cex_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cex-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - cex_net
+
+volumes:
+  cex_pg_data:
+  cex_redis_data:
+
+networks:
+  cex_net:
+    driver: bridge

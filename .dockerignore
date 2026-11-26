@@ -1,0 +1,6 @@
+.git
+.github
+.gemini
+dist
+node_modules
+*.log

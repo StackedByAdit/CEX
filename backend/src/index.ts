@@ -43,7 +43,9 @@ import {
     sessionCookieOptions,
     SESSION_COOKIE_NAME,
 } from "./utils/sessionCookie";
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const WS_PORT = Number(process.env.WS_PORT) || 8080;
+const HOST = process.env.HOST || "0.0.0.0";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
@@ -608,14 +610,14 @@ async function bootstrap() {
     }
 
     await restoreOpenOrders();
-    initWS(8080);
+    initWS(WS_PORT);
     runWorker().catch(err => console.error("Worker crashed:", err));
 
     setInterval(() => {
         advanceCandlesIfNeeded().catch(err => console.error("Candle advance error:", err));
     }, 5_000);
 
-    app.listen(PORT, () => console.log("CEX running on :3000"));
+    app.listen(PORT, HOST, () => console.log(`CEX HTTP running on http://${HOST}:${PORT}, WS on :${WS_PORT}`));
 }
 
 bootstrap();
