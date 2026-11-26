@@ -3,9 +3,15 @@ import { BALANCES, STOCK_BY_SYMBOL, type BalanceRecord } from "../state";
 import { getAssetScale, parseUnits } from "./precision";
 
 export function getBalance(userId: string, symbol: string): BalanceRecord {
-    const balance = BALANCES[userId]?.[symbol];
+    let balance = BALANCES[userId]?.[symbol];
     if (!balance) {
-        throw new Error(`Balance cache miss: ${userId}/${symbol}`);
+        if (!BALANCES[userId]) BALANCES[userId] = {};
+        balance = {
+            available: 0n,
+            locked: 0n,
+            balanceId: "",
+        };
+        BALANCES[userId]![symbol] = balance;
     }
     return balance;
 }

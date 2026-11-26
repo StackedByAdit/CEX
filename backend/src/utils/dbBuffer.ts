@@ -46,7 +46,9 @@ export function queueBalanceUpdate(
     if (!balanceId) return;
     const availBi = typeof available === "bigint" ? available : BigInt(Math.round(available));
     const lockedBi = typeof locked === "bigint" ? locked : BigInt(Math.round(locked));
-    balanceBuffer.set(balanceId, { balanceId, available: availBi, locked: lockedBi, symbol });
+    const safeAvail = availBi < 0n ? 0n : availBi;
+    const safeLocked = lockedBi < 0n ? 0n : lockedBi;
+    balanceBuffer.set(balanceId, { balanceId, available: safeAvail, locked: safeLocked, symbol });
     startFlushTimerIfNeeded();
 }
 
