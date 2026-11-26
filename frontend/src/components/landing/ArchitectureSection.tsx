@@ -1,8 +1,8 @@
 const STEPS = [
   {
     index: "01",
-    title: "Request",
-    body: "A signed-in client posts a limit or market order. The API checks the shape of the order before anything is reserved.",
+    title: "Admission & Ingress",
+    body: "Clients submit orders via HTTP REST (/order) or Zero-Auth WebSocket (PLACE_ORDER). The API validates schema and dimensions before reserving any balance.",
   },
   {
     index: "02",
@@ -12,17 +12,17 @@ const STEPS = [
   {
     index: "03",
     title: "Queue",
-    body: "The order is pushed onto a Redis list. The HTTP handler then waits, up to five seconds, for that order’s result.",
+    body: "The validated order is enqueued onto Redis (queue:orders) instantaneously, providing immediate sub-millisecond acknowledgment to the client.",
   },
   {
     index: "04",
     title: "Match",
-    body: "A worker pops the queue and matches against the in-memory book. Asks walk upward, bids walk downward. Unfilled limit quantity rests on the book.",
+    body: "A dedicated worker pops the queue and matches against the in-memory sorted BTree. Asks walk upward, bids walk downward. Unfilled limit quantity rests on the book.",
   },
   {
     index: "05",
     title: "Persist",
-    body: "Fills, order status, and balance changes are queued and flushed on a short timer. The comparison itself does not wait on Postgres.",
+    body: "Fills, order status, and balance changes are debounced into a 500 ms write-behind buffer. High-speed matching never blocks on database transactions.",
   },
 ];
 

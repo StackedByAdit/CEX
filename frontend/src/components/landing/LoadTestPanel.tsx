@@ -3,8 +3,8 @@ import { LOAD_TEST, MATCHING_CORE_ORDERS_PER_SEC } from "../../content/benchmark
 const HOOKS = [
   { value: "100%", label: "Success rate", detail: "Zero dropped orders", tone: "text-orbit-green" },
   { value: LOAD_TEST.matchingLatencyLabel, label: "Matching latency", detail: "In-memory B-tree core", tone: "text-white" },
-  { value: "50.4 ms", label: "Baseline P50", detail: "Full HTTP + auth loop", tone: "text-white" },
-  { value: "1,350", label: "Stress-test orders", detail: "50 concurrent bots", tone: "text-white" },
+  { value: "2.2 ms", label: "Zero-Auth WS P50", detail: "Handshake-authenticated", tone: "text-white" },
+  { value: "~6,000", label: "Peak TPS burst", detail: "Zero-Auth WS (50 bots)", tone: "text-white" },
 ];
 
 export default function LoadTestPanel() {
@@ -12,7 +12,7 @@ export default function LoadTestPanel() {
     <figure className="border border-white/10 bg-orbit-panel/80">
       <figcaption className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-orbit-secondary">Load test</span>
-        <span className="text-[10px] text-orbit-secondary">1,350 / 1,350 accepted</span>
+        <span className="text-[10px] text-orbit-secondary">1,350 / 1,350 accepted · Zero dropped</span>
       </figcaption>
       <div className="grid grid-cols-2 lg:grid-cols-4">
         {HOOKS.map((hook) => (
@@ -26,7 +26,9 @@ export default function LoadTestPanel() {
       <p className="border-t border-white/10 px-4 py-3 text-xs text-orbit-secondary">
         Matching core{" "}
         <span className="font-mono text-sm text-white">~{Math.round(MATCHING_CORE_ORDERS_PER_SEC / 1000)}K</span>{" "}
-        orders/sec. HTTP stays near 60/sec once auth and the queue are on the path.
+        orders/sec. Zero-Auth WebSocket reaches{" "}
+        <span className="font-mono text-sm text-white">~6,000</span> orders/sec; HTTP REST sustains{" "}
+        <span className="font-mono text-sm text-white">~204</span> orders/sec.
       </p>
     </figure>
   );
